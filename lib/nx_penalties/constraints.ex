@@ -86,12 +86,11 @@ defmodule NxPenalties.Constraints do
 
   deftransform orthogonality_soft_impl(tensor, normalize) do
     matrix = reshape_to_2d(tensor)
-    orthogonality_soft_compute(matrix, normalize)
+    matrix = if normalize, do: normalize_rows(matrix), else: matrix
+    orthogonality_soft_compute(matrix)
   end
 
-  defnp orthogonality_soft_compute(matrix, normalize) do
-    matrix = maybe_normalize_rows(matrix, normalize)
-
+  defnp orthogonality_soft_compute(matrix) do
     # Compute Gram matrix: G = M @ M^T
     gram = Nx.dot(matrix, [1], matrix, [1])
     n = Nx.axis_size(gram, 0)
@@ -104,12 +103,11 @@ defmodule NxPenalties.Constraints do
 
   deftransform orthogonality_hard_impl(tensor, normalize) do
     matrix = reshape_to_2d(tensor)
-    orthogonality_hard_compute(matrix, normalize)
+    matrix = if normalize, do: normalize_rows(matrix), else: matrix
+    orthogonality_hard_compute(matrix)
   end
 
-  defnp orthogonality_hard_compute(matrix, normalize) do
-    matrix = maybe_normalize_rows(matrix, normalize)
-
+  defnp orthogonality_hard_compute(matrix) do
     # Compute Gram matrix
     gram = Nx.dot(matrix, [1], matrix, [1])
     n = Nx.axis_size(gram, 0)
@@ -120,14 +118,10 @@ defmodule NxPenalties.Constraints do
     Nx.sum(Nx.pow(deviation, 2))
   end
 
-  defnp maybe_normalize_rows(matrix, normalize) do
-    if normalize do
-      norms = Nx.sqrt(Nx.sum(Nx.pow(matrix, 2), axes: [1], keep_axes: true))
-      safe_norms = Nx.max(norms, 1.0e-8)
-      Nx.divide(matrix, safe_norms)
-    else
-      matrix
-    end
+  defnp normalize_rows(matrix) do
+    norms = Nx.sqrt(Nx.sum(Nx.pow(matrix, 2), axes: [1], keep_axes: true))
+    safe_norms = Nx.max(norms, 1.0e-8)
+    Nx.divide(matrix, safe_norms)
   end
 
   @doc """

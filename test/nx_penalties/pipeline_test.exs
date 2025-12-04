@@ -278,4 +278,69 @@ defmodule NxPenalties.PipelineTest do
       assert_close(total, Nx.tensor(0.6))
     end
   end
+
+  describe "gradient tracking integration" do
+    test "compute returns gradient metrics when tracking enabled" do
+      pipeline =
+        NxPenalties.pipeline([
+          {:l1, weight: 0.001},
+          {:l2, weight: 0.01}
+        ])
+
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+
+      {_total, metrics} = Pipeline.compute(pipeline, tensor, track_grad_norms: true)
+
+      assert Map.has_key?(metrics, "l1_grad_norm")
+      assert Map.has_key?(metrics, "l2_grad_norm")
+      assert Map.has_key?(metrics, "total_grad_norm")
+    end
+
+    test "compute does not include gradient metrics when tracking disabled" do
+      pipeline = NxPenalties.pipeline([{:l1, weight: 0.001}])
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+
+      {_total, metrics} = Pipeline.compute(pipeline, tensor)
+
+      refute Map.has_key?(metrics, "l1_grad_norm")
+      refute Map.has_key?(metrics, "total_grad_norm")
+    end
+
+    test "gradient norms are correct values" do
+      pipeline = NxPenalties.pipeline([{:l1, weight: 1.0}])
+      tensor = Nx.tensor([1.0, 1.0, 1.0])
+
+      {_total, metrics} = Pipeline.compute(pipeline, tensor, track_grad_norms: true)
+
+      # L1 gradient is sign(x) = [1, 1, 1], L2 norm = sqrt(3)
+      assert_in_delta metrics["l1_grad_norm"], :math.sqrt(3), 1.0e-5
+      assert_in_delta metrics["total_grad_norm"], :math.sqrt(3), 1.0e-5
+    end
+
+    test "gradient tracking with empty pipeline" do
+      pipeline = Pipeline.new()
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+
+      {_total, metrics} = Pipeline.compute(pipeline, tensor, track_grad_norms: true)
+
+      # Empty pipeline should have empty metrics or zero total_grad_norm
+      assert metrics == %{} or metrics["total_grad_norm"] == 0.0
+    end
+
+    test "gradient tracking skips disabled penalties" do
+      pipeline =
+        NxPenalties.pipeline([
+          {:l1, weight: 0.001},
+          {:l2, weight: 0.01}
+        ])
+        |> Pipeline.set_enabled(:l2, false)
+
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+
+      {_total, metrics} = Pipeline.compute(pipeline, tensor, track_grad_norms: true)
+
+      assert Map.has_key?(metrics, "l1_grad_norm")
+      refute Map.has_key?(metrics, "l2_grad_norm")
+    end
+  end
 end

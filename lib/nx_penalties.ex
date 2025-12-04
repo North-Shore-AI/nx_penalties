@@ -178,4 +178,56 @@ defmodule NxPenalties do
   """
   @spec compute_total(Pipeline.t(), Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
   defdelegate compute_total(pipeline, tensor, opts \\ []), to: Pipeline
+
+  # ============================================================================
+  # Validation
+  # ============================================================================
+
+  @doc """
+  Validate that a tensor contains no NaN or Inf values.
+
+  ## Examples
+
+      iex> NxPenalties.validate(Nx.tensor([1.0, 2.0, 3.0]))
+      {:ok, #Nx.Tensor<...>}
+
+      iex> NxPenalties.validate(Nx.Constants.nan({:f, 32}))
+      {:error, :nan}
+
+      iex> NxPenalties.validate(Nx.Constants.infinity({:f, 32}))
+      {:error, :inf}
+
+  ## Returns
+
+    * `{:ok, tensor}` - Tensor is finite (no NaN or Inf)
+    * `{:error, :nan}` - Tensor contains NaN values
+    * `{:error, :inf}` - Tensor contains Inf values
+
+  ## Notes
+
+  NaN is checked first, so if a tensor contains both NaN and Inf,
+  `{:error, :nan}` is returned.
+  """
+  @spec validate(Nx.Tensor.t()) :: {:ok, Nx.Tensor.t()} | {:error, :nan | :inf}
+  def validate(tensor) do
+    cond do
+      has_nan?(tensor) -> {:error, :nan}
+      has_inf?(tensor) -> {:error, :inf}
+      true -> {:ok, tensor}
+    end
+  end
+
+  defp has_nan?(tensor) do
+    tensor
+    |> Nx.is_nan()
+    |> Nx.any()
+    |> Nx.to_number() == 1
+  end
+
+  defp has_inf?(tensor) do
+    tensor
+    |> Nx.is_infinity()
+    |> Nx.any()
+    |> Nx.to_number() == 1
+  end
 end

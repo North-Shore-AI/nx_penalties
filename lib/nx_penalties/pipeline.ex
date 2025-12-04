@@ -168,9 +168,13 @@ defmodule NxPenalties.Pipeline do
       {total, metrics} = Pipeline.compute(pipeline, tensor, extra_args: [reduction: :mean])
   """
   @spec compute(t(), Nx.Tensor.t(), keyword()) :: {Nx.Tensor.t(), map()}
-  def compute(%__MODULE__{entries: entries}, tensor, opts \\ []) do
+  def compute(%__MODULE__{} = pipeline, tensor, opts \\ []) do
+    NxPenalties.Telemetry.span_pipeline(pipeline, tensor, opts, &do_compute/3)
+  end
+
+  defp do_compute(%__MODULE__{entries: entries} = pipeline, tensor, opts) do
     extra_args = Keyword.get(opts, :extra_args, [])
-    _track_grad_norms = Keyword.get(opts, :track_grad_norms, false)
+    track_grad_norms = Keyword.get(opts, :track_grad_norms, false)
 
     # Filter enabled entries
     enabled_entries = Enum.filter(entries, fn {_, _, _, _, enabled} -> enabled end)
@@ -210,6 +214,19 @@ defmodule NxPenalties.Pipeline do
       # Add total to metrics
       total_value = Nx.to_number(total)
       metrics = Map.put(metrics, "total", total_value)
+
+      # Optionally add gradient metrics
+      metrics =
+        if track_grad_norms do
+          grad_metrics = NxPenalties.GradientTracker.pipeline_grad_norms(pipeline, tensor)
+          total_norm = NxPenalties.GradientTracker.total_grad_norm(pipeline, tensor)
+
+          metrics
+          |> Map.merge(grad_metrics)
+          |> Map.put("total_grad_norm", total_norm)
+        else
+          metrics
+        end
 
       {total, metrics}
     end

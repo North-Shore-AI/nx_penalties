@@ -4,20 +4,6 @@ defmodule NxPenalties.Telemetry do
 
   ## Events
 
-  ### `[:nx_penalties, :penalty, :compute, :start]`
-
-  Emitted before computing a single penalty.
-
-  Measurements: `%{system_time: integer}`
-  Metadata: `%{name: atom, opts: keyword}`
-
-  ### `[:nx_penalties, :penalty, :compute, :stop]`
-
-  Emitted after computing a single penalty.
-
-  Measurements: `%{duration: integer, value: float}`
-  Metadata: `%{name: atom, opts: keyword}`
-
   ### `[:nx_penalties, :pipeline, :compute, :start]`
 
   Emitted before computing a pipeline.
@@ -29,8 +15,8 @@ defmodule NxPenalties.Telemetry do
 
   Emitted after computing a pipeline.
 
-  Measurements: `%{duration: integer, total: float}`
-  Metadata: `%{pipeline_name: String.t | nil, entry_count: integer, metrics: map}`
+  Measurements: `%{duration: integer}`
+  Metadata: `%{pipeline_name: String.t | nil, entry_count: integer, metrics: map, total: float}`
 
   ## Example Handler
 
@@ -39,15 +25,15 @@ defmodule NxPenalties.Telemetry do
         [
           [:nx_penalties, :pipeline, :compute, :stop]
         ],
-        fn event, measurements, metadata, _config ->
-          IO.puts("Pipeline computed in \#{measurements.duration}ns, total: \#{measurements.total}")
+        fn _event, measurements, metadata, _config ->
+          IO.puts("Pipeline computed in \#{measurements.duration}ns, total: \#{metadata.total}")
         end,
         nil
       )
   """
 
   @doc """
-  Execute a pipeline computation with telemetry events.
+  Execute a pipeline computation with telemetry span.
   """
   @spec span_pipeline(NxPenalties.Pipeline.t(), Nx.Tensor.t(), keyword(), function()) ::
           {Nx.Tensor.t(), map()}
@@ -72,18 +58,6 @@ defmodule NxPenalties.Telemetry do
 
         {{total, metrics}, result_metadata}
       end
-    )
-  end
-
-  @doc """
-  Emit a penalty computation event.
-  """
-  @spec emit_penalty_computed(atom(), float(), integer()) :: :ok
-  def emit_penalty_computed(name, value, duration_ns) do
-    :telemetry.execute(
-      [:nx_penalties, :penalty, :computed],
-      %{value: value, duration: duration_ns},
-      %{name: name}
     )
   end
 end

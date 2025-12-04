@@ -214,4 +214,48 @@ defmodule NxPenalties.PenaltiesTest do
       assert_finite(grads)
     end
   end
+
+  describe "validate/1" do
+    test "returns {:ok, tensor} for finite tensor" do
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+      assert {:ok, ^tensor} = NxPenalties.validate(tensor)
+    end
+
+    test "returns {:error, :nan} for tensor with NaN" do
+      tensor = Nx.Constants.nan({:f, 32})
+      assert {:error, :nan} = NxPenalties.validate(tensor)
+    end
+
+    test "returns {:error, :inf} for tensor with infinity" do
+      tensor = Nx.Constants.infinity({:f, 32})
+      assert {:error, :inf} = NxPenalties.validate(tensor)
+    end
+
+    test "returns {:error, :inf} for tensor with negative infinity" do
+      tensor = Nx.Constants.neg_infinity({:f, 32})
+      assert {:error, :inf} = NxPenalties.validate(tensor)
+    end
+
+    test "returns {:ok, tensor} for multidimensional tensors" do
+      tensor = Nx.tensor([[1.0, 2.0], [3.0, 4.0]])
+      assert {:ok, ^tensor} = NxPenalties.validate(tensor)
+    end
+
+    test "detects NaN in multidimensional tensor" do
+      # Use Nx.select to embed a NaN in a tensor
+      nan = Nx.Constants.nan({:f, 32})
+      base = Nx.tensor([[1.0, 2.0], [3.0, 4.0]])
+      mask = Nx.tensor([[0, 1], [0, 0]], type: :u8)
+      tensor = Nx.select(mask, nan, base)
+      assert {:error, :nan} = NxPenalties.validate(tensor)
+    end
+
+    test "detects Inf in multidimensional tensor" do
+      inf = Nx.Constants.infinity({:f, 32})
+      base = Nx.tensor([[1.0, 2.0], [3.0, 4.0]])
+      mask = Nx.tensor([[1, 0], [0, 0]], type: :u8)
+      tensor = Nx.select(mask, inf, base)
+      assert {:error, :inf} = NxPenalties.validate(tensor)
+    end
+  end
 end

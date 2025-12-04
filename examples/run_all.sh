@@ -17,6 +17,9 @@ examples=(
   "pipeline_composition.exs"
   "axon_training.exs"
   "curriculum_learning.exs"
+  "gradient_tracking.exs"
+  "polaris_integration.exs"
+  "constraints.exs"
 )
 
 for example in "${examples[@]}"; do
