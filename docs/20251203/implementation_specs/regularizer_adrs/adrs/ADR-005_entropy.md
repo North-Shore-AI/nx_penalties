@@ -105,7 +105,8 @@ end
 |--------|------|---------|-------------|
 | `:mode` | `:maximize` \| `:minimize` | `:maximize` | Direction of regularization |
 | `:normalize` | boolean | `false` | Normalize by max possible entropy |
-| `:temperature` | float | `1.0` | Apply temperature before computing entropy |
+
+> **Future extension:** `:temperature` for distribution sharpening is documented below but not yet implemented in `compute/3`.
 
 ## Consequences
 

@@ -59,12 +59,12 @@ defmodule NxPenalties.Pipeline do
   """
 
   defstruct [
-    :entries,      # List of {name, fn, weight, opts}
+    :entries,      # List of {name, fn, weight, opts, enabled}
     :reduction,    # How to combine: :sum | :mean
     :scale        # Global scale factor
   ]
 
-  @type entry :: {atom(), function(), number() | Nx.Tensor.t(), keyword()}
+  @type entry :: {atom(), function(), number() | Nx.Tensor.t(), keyword(), boolean()}
 
   @type t :: %__MODULE__{
     entries: [entry()],
@@ -182,6 +182,9 @@ Compute all penalties and return total + metrics.
   - `"{name}"` - Raw penalty value
   - `"{name}_weighted"` - Weight-adjusted value
   - `"total"` - Sum of all weighted penalties
+
+  For gradient norm tracking (debugging which regularizer dominates training),
+  see [11_GRADIENT_TRACKING.md](./11_GRADIENT_TRACKING.md).
 """
 @spec compute(t(), Nx.Tensor.t(), keyword()) :: {Nx.Tensor.t(), map()}
 def compute(%__MODULE__{} = pipeline, tensor, extra_args \\ [])
@@ -196,7 +199,7 @@ def compute(%__MODULE__{} = pipeline, tensor, extra_args) do
   results =
     pipeline.entries
     |> Enum.filter(fn {_, _, _, _, enabled} -> enabled end)
-    |> Enum.map(fn {name, penalty_fn, weight, opts} ->
+    |> Enum.map(fn {name, penalty_fn, weight, opts, _enabled} ->
       # Merge extra_args into opts
       full_opts = Keyword.merge(opts, extra_args)
 
@@ -366,7 +369,7 @@ defmodule NxPenalties.Pipeline.Multi do
   defstruct [:entries, :reduction, :scale]
 
   @type t :: %__MODULE__{
-    entries: [{atom(), function(), term(), keyword()}],
+    entries: [{atom(), function(), term(), keyword(), boolean()}],
     reduction: :sum | :mean,
     scale: term()
   }
@@ -382,7 +385,8 @@ defmodule NxPenalties.Pipeline.Multi do
   def compute(%__MODULE__{} = pipeline, inputs, extra_args \\ []) when is_map(inputs) do
     results =
       pipeline.entries
-      |> Enum.map(fn {name, penalty_fn, weight, opts} ->
+      |> Enum.filter(fn {_, _, _, _, enabled} -> enabled end)
+      |> Enum.map(fn {name, penalty_fn, weight, opts, _enabled} ->
         raw_value = penalty_fn.(inputs, Keyword.merge(opts, extra_args))
         weighted_value = Nx.multiply(raw_value, weight)
         {name, raw_value, weighted_value}

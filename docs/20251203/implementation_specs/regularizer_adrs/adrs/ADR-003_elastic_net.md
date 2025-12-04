@@ -33,7 +33,7 @@ defmodule Tinkex.Regularizer.ElasticNet do
   """
 
   @impl true
-  def compute(_data, logprobs, opts \\ []) do
+  def compute(data, logprobs, opts \\ []) do
     alpha = Keyword.get(opts, :alpha, 0.5)
     target = Keyword.get(opts, :target, :logprobs)
 

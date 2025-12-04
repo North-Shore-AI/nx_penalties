@@ -64,7 +64,10 @@ The gradient is the sign function: ∂L1/∂x = λ * sign(x).
 
 ## Options
 
-  * `:lambda` - Regularization strength. Default: `0.01`
+  * `:lambda` - Regularization strength. Default: `1.0`
+    > **Note:** Primitives default to `lambda: 1.0` (unscaled). Use pipeline `weight`
+    > as the primary scaling knob. Only set `lambda` if you need intrinsic scaling
+    > within the penalty function itself.
   * `:reduction` - How to aggregate values. Default: `:sum`
     * `:sum` - Sum of absolute values
     * `:mean` - Mean of absolute values
@@ -84,7 +87,7 @@ At x=0, the subgradient is 0. Nx handles this correctly via `Nx.sign/1`.
 """
 @spec l1(Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
 defn l1(tensor, opts \\ []) do
-  lambda = opts[:lambda] || 0.01
+  lambda = opts[:lambda] || 1.0
   reduction = opts[:reduction] || :sum
 
   abs_values = Nx.abs(tensor)
@@ -117,8 +120,8 @@ describe "l1/2" do
   test "computes correct L1 norm with default lambda" do
     tensor = Nx.tensor([1.0, -2.0, 3.0])
     result = NxPenalties.Penalties.l1(tensor)
-    # Expected: 0.01 * (1 + 2 + 3) = 0.06
-    assert_close(result, Nx.tensor(0.06))
+    # Expected: 1.0 * (1 + 2 + 3) = 6.0 (unscaled by default)
+    assert_close(result, Nx.tensor(6.0))
   end
 
   test "respects custom lambda" do
@@ -180,7 +183,9 @@ proportionally rather than being driven to zero.
 
 ## Options
 
-  * `:lambda` - Regularization strength. Default: `0.01`
+  * `:lambda` - Regularization strength. Default: `1.0`
+    > **Note:** Primitives default to `lambda: 1.0` (unscaled). Use pipeline `weight`
+    > as the primary scaling knob.
   * `:reduction` - How to aggregate values. Default: `:sum`
     * `:sum` - Sum of squared values
     * `:mean` - Mean of squared values
@@ -202,7 +207,7 @@ The gradient is linear: ∂L2/∂x = 2λx
 """
 @spec l2(Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
 defn l2(tensor, opts \\ []) do
-  lambda = opts[:lambda] || 0.01
+  lambda = opts[:lambda] || 1.0
   reduction = opts[:reduction] || :sum
   clip_val = opts[:clip]
 
@@ -293,7 +298,9 @@ Combines sparsity induction (L1) with smooth shrinkage (L2).
 
 ## Options
 
-  * `:lambda` - Overall regularization strength. Default: `0.01`
+  * `:lambda` - Overall regularization strength. Default: `1.0`
+    > **Note:** Primitives default to `lambda: 1.0` (unscaled). Use pipeline `weight`
+    > as the primary scaling knob.
   * `:l1_ratio` - Balance between L1 and L2 (α). Default: `0.5`
     * `1.0` = pure L1
     * `0.5` = equal mix
@@ -310,7 +317,7 @@ Combines sparsity induction (L1) with smooth shrinkage (L2).
 """
 @spec elastic_net(Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
 defn elastic_net(tensor, opts \\ []) do
-  lambda = opts[:lambda] || 0.01
+  lambda = opts[:lambda] || 1.0
   l1_ratio = opts[:l1_ratio] || 0.5
   reduction = opts[:reduction] || :sum
 
@@ -404,18 +411,18 @@ defmodule NxPenalties.Penalties.Validation do
   @moduledoc false
 
   @l1_schema [
-    lambda: [type: :float, default: 0.01],
+    lambda: [type: :float, default: 1.0],
     reduction: [type: {:in, [:sum, :mean]}, default: :sum]
   ]
 
   @l2_schema [
-    lambda: [type: :float, default: 0.01],
+    lambda: [type: :float, default: 1.0],
     reduction: [type: {:in, [:sum, :mean]}, default: :sum],
     clip: [type: {:or, [:float, nil]}, default: nil]
   ]
 
   @elastic_net_schema [
-    lambda: [type: :float, default: 0.01],
+    lambda: [type: :float, default: 1.0],
     l1_ratio: [type: :float, default: 0.5],
     reduction: [type: {:in, [:sum, :mean]}, default: :sum]
   ]

@@ -60,12 +60,17 @@ L1 penalty (Lasso regularization).
 
 ## Options
 
-  * `:lambda` - Regularization strength (default: `0.01`)
+  * `:lambda` - Regularization strength (default: `1.0`)
   * `:reduction` - `:sum` or `:mean` (default: `:sum`)
 
 ## Returns
 
 Scalar tensor with penalty value.
+
+## Note
+
+Primitives default to `lambda: 1.0` (unscaled). Use pipeline `weight` as the
+primary scaling knob. See "Hot Path vs Entry Point" section below.
 """
 @spec l1(Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
 def l1(tensor, opts \\ [])
@@ -84,7 +89,7 @@ L2 penalty (Ridge regularization).
 
 ## Options
 
-  * `:lambda` - Regularization strength (default: `0.01`)
+  * `:lambda` - Regularization strength (default: `1.0`)
   * `:reduction` - `:sum` or `:mean` (default: `:sum`)
   * `:clip` - Max absolute value before squaring (default: `nil`)
 
@@ -109,7 +114,7 @@ Elastic Net penalty (combined L1 + L2).
 
 ## Options
 
-  * `:lambda` - Overall strength (default: `0.01`)
+  * `:lambda` - Overall strength (default: `1.0`)
   * `:l1_ratio` - L1/L2 balance, 1.0 = pure L1 (default: `0.5`)
   * `:reduction` - `:sum` or `:mean` (default: `:sum`)
 
@@ -407,6 +412,90 @@ def validate(tensor)
 | `[:nx_penalties, :penalty, :compute, :stop]` | `%{duration: ns, value: float}` | `%{name: atom}` |
 | `[:nx_penalties, :pipeline, :compute, :start]` | `%{system_time: t}` | `%{size: int}` |
 | `[:nx_penalties, :pipeline, :compute, :stop]` | `%{duration: ns}` | `%{metrics: map}` |
+
+---
+
+## Hot Path vs Entry Point
+
+NxPenalties provides two API layers:
+
+| Layer | Module | Use Case | Defn-safe? |
+|-------|--------|----------|------------|
+| **Hot Path** | `NxPenalties.Penalties.*` | Inside `defn`, JIT compiled | Yes |
+| **Entry Point** | `NxPenalties.*` | Validated boundary, training loops | No |
+
+### When to Use Which
+
+**Hot Path (inside defn):**
+```elixir
+import Nx.Defn
+
+defn train_step(params, batch) do
+  # Use Penalties module directly - no validation overhead
+  l1_loss = NxPenalties.Penalties.l1(params.weights)
+  l2_loss = NxPenalties.Penalties.l2(params.weights)
+  # ...
+end
+```
+
+**Entry Point (outside defn):**
+```elixir
+# Use top-level module for validation and nice errors
+penalty = NxPenalties.l1(tensor, lambda: 0.01)
+
+# Or use pipeline (recommended)
+pipeline = NxPenalties.pipeline([{:l1, weight: 0.01}])
+{total, metrics} = NxPenalties.compute(pipeline, tensor)
+```
+
+### Lambda vs Weight
+
+| Concept | Purpose | Where Set | When to Use |
+|---------|---------|-----------|-------------|
+| `lambda` | Intrinsic penalty strength | Penalty function | Rarely - only for penalty-specific scaling |
+| `weight` | Pipeline combination weight | Pipeline entry | **Primary scaling knob** |
+
+**Recommended pattern:**
+- Leave `lambda` at default `1.0` (unscaled)
+- Use pipeline `weight` to control regularization strength
+- Only touch `lambda` if you understand the penalty's natural scale
+
+```elixir
+# Good: weight is the knob
+pipeline = NxPenalties.pipeline([
+  {:l1, weight: 0.001},    # 0.1% of L1 norm
+  {:l2, weight: 0.01},     # 1% of L2 norm
+  {:entropy, weight: 0.1}  # 10% of entropy
+])
+
+# Avoid: triple-scaling confusion
+pipeline = NxPenalties.pipeline([
+  {:l1, weight: 0.01, opts: [lambda: 0.1]}  # What's the actual scale?
+])
+```
+
+---
+
+## Using KL/Consistency Without Pipeline.Multi
+
+For v0.1, multi-input penalties (KL divergence, consistency) work by passing the second tensor directly:
+
+```elixir
+# KL divergence - pass reference as second argument
+kl_loss = NxPenalties.kl_divergence(current_logprobs, reference_logprobs)
+
+# Consistency - pass both outputs
+consistency_loss = NxPenalties.consistency(output1, output2, metric: :mse)
+
+# In a pipeline, use the penalty function directly with closure
+pipeline =
+  NxPenalties.Pipeline.new()
+  |> NxPenalties.Pipeline.add(:kl, fn tensor, _opts ->
+    NxPenalties.Divergences.kl_divergence(tensor, reference_logprobs)
+  end, weight: 0.1)
+```
+
+> **Note:** `Pipeline.Multi` for named multi-tensor inputs is planned for v0.2.
 
 ---
 

@@ -8,6 +8,25 @@
 
 NxPenalties is a standalone Elixir library providing composable regularization penalties and loss functions for the Nx ecosystem. It fills a critical gap between Axon (model graph) and Polaris (optimization) by providing the "missing middleware" for complex training objectives.
 
+## Quick Example
+
+```elixir
+# Simple penalty
+l1_loss = NxPenalties.l1(params.weights)
+
+# Pipeline composition (recommended)
+pipeline = NxPenalties.pipeline([
+  {:l1, weight: 0.001},    # Sparsity
+  {:l2, weight: 0.01},     # Weight decay
+  {:entropy, weight: 0.1, opts: [mode: :bonus]}  # Exploration
+])
+
+{total_penalty, metrics} = NxPenalties.compute(pipeline, model_outputs)
+
+# Integrate with your training loop
+total_loss = base_loss + total_penalty
+```
+
 ## Document Index
 
 | Document | Purpose | Priority |
@@ -23,6 +42,7 @@ NxPenalties is a standalone Elixir library providing composable regularization p
 | [08_API_REFERENCE.md](./08_API_REFERENCE.md) | Complete function signatures | Reference |
 | [09_NUMERICAL_STABILITY.md](./09_NUMERICAL_STABILITY.md) | Stability patterns, edge cases | Critical |
 | [10_BACKEND_COMPATIBILITY.md](./10_BACKEND_COMPATIBILITY.md) | EXLA/Torchx testing matrix | Critical |
+| [11_GRADIENT_TRACKING.md](./11_GRADIENT_TRACKING.md) | Gradient norm monitoring (from tinkex) | Phase 2 |
 
 ## Strategic Context
 
@@ -47,7 +67,7 @@ NxPenalties is a standalone Elixir library providing composable regularization p
 
 ## Implementation Phases
 
-### Phase 1: MVP (Weeks 1-3)
+### Phase 1: MVP (v0.1)
 - Core penalties: L1, L2, Elastic Net
 - Divergences: KL, entropy
 - Pipeline composition with weights
@@ -55,19 +75,21 @@ NxPenalties is a standalone Elixir library providing composable regularization p
 - Comprehensive test suite
 - Hex.pm publication
 
-### Phase 2: Extended (Weeks 4-6)
-- Constraints: orthogonality, gradient penalty, consistency
+### Phase 2: Extended (v0.2)
+- Constraints: orthogonality, consistency
 - Polaris gradient transforms
 - Activity regularization via layer wrappers
 - Advanced telemetry
 - Livebook examples
+- Gradient penalty (advanced, expensive)
+- Gradient tracking / norm monitoring (N+1 backward passes)
 
-### Phase 3: Advanced (Weeks 7+)
+### Phase 3: Advanced (v0.3+)
 - Auxiliary loss infrastructure
 - Multi-head output support
+- Pipeline.Multi for named inputs
 - Containerized loss pattern
 - Community feedback integration
-- Polaris upstream proposal
 
 ## Dependencies
 
@@ -98,6 +120,7 @@ lib/
     ├── divergences.ex         # kl, js, entropy
     ├── constraints.ex         # orthogonality, gradient_penalty
     ├── pipeline.ex            # Composition engine
+    ├── gradient_tracker.ex    # Gradient norm monitoring
     ├── telemetry.ex           # Instrumentation
     └── integration/
         ├── axon.ex            # Axon.Loop helpers

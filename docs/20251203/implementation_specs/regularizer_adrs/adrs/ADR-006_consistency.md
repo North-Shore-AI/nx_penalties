@@ -151,7 +151,8 @@ end
 |--------|------|---------|-------------|
 | `:pair_field` | string | `"original_logprobs"` | Field containing reference logprobs |
 | `:metric` | atom | `:mse` | Divergence metric (`:mse`, `:kl`, `:cosine`, `:l1`) |
-| `:temperature` | float | `1.0` | Sharpen distributions before comparison |
+
+> **Future extension:** `:temperature` for distribution sharpening before comparison is planned but not yet implemented.
 
 ## Consequences
 

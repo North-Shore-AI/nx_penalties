@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed
+**Proposed - Advanced/v0.2**
+
+> ⚠️ **Implementation Note:** This regularizer requires second-order derivatives (gradient of gradient), which is computationally expensive. For v0.1, consider using `output_magnitude_penalty` as a simpler proxy. Full WGAN-GP style gradient penalty is planned for v0.2 with explicit performance warnings.
 
 ## Context
 

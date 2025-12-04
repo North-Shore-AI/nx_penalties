@@ -66,8 +66,8 @@ defmodule Tinkex.Regularizer.KLDivergence do
       """
     end
 
-    # Ensure same shape
-    {logprobs, reference} = broadcast_shapes(logprobs, reference)
+    # Require identical shapes (strict validation)
+    {logprobs, reference} = validate_shapes!(logprobs, reference)
 
     # Convert logprobs to probabilities
     p = Nx.exp(logprobs)       # fine-tuned distribution
@@ -115,8 +115,16 @@ defmodule Tinkex.Regularizer.KLDivergence do
     end
   end
 
-  defp broadcast_shapes(a, b) do
-    # Handle shape mismatches gracefully
+  defp validate_shapes!(a, b) do
+    if Nx.shape(a) != Nx.shape(b) do
+      raise ArgumentError, """
+      Shape mismatch in KL divergence.
+      logprobs shape: #{inspect(Nx.shape(a))}
+      reference shape: #{inspect(Nx.shape(b))}
+
+      Both tensors must have identical shapes.
+      """
+    end
     {a, b}
   end
 
@@ -133,8 +141,8 @@ end
 | `:reference_logprobs` | Nx.Tensor.t() | required | Reference distribution logprobs |
 | `:reference_field` | atom | nil | Field name in Datum.loss_fn_inputs |
 | `:compute_reference` | function | nil | Function to compute reference on-demand |
-| `:direction` | `:forward` \| `:reverse` | `:forward` | KL(P\|\|Q) vs KL(Q\|\|P) |
-| `:symmetric` | boolean | `false` | Use Jensen-Shannon divergence instead |
+
+> **Future extensions:** `:direction` (`:forward` \| `:reverse`) and `:symmetric` (Jensen-Shannon) are planned but not yet implemented.
 
 ## Consequences
 

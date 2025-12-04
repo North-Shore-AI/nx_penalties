@@ -27,7 +27,7 @@ defmodule Tinkex.Regularizer.L2 do
   @behaviour Tinkex.Regularizer
 
   @impl true
-  def compute(_data, logprobs, opts \\ []) do
+  def compute(data, logprobs, opts \\ []) do
     target = Keyword.get(opts, :target, :logprobs)
     center = Keyword.get(opts, :center, nil)
 
