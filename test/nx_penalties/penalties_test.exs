@@ -131,6 +131,89 @@ defmodule NxPenalties.PenaltiesTest do
     end
   end
 
+  describe "l2/2 with center option" do
+    test "center: :mean subtracts mean before squaring" do
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+      # mean = 2.0, centered = [-1, 0, 1], squared = [1, 0, 1], sum = 2
+      result = Penalties.l2(tensor, lambda: 1.0, center: :mean)
+      assert_close(result, Nx.tensor(2.0))
+    end
+
+    test "center: value subtracts value before squaring" do
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+      # centered around 1.0: [0, 1, 2], squared = [0, 1, 4], sum = 5
+      result = Penalties.l2(tensor, lambda: 1.0, center: 1.0)
+      assert_close(result, Nx.tensor(5.0))
+    end
+
+    test "center: nil is same as no centering (default)" do
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+      default = Penalties.l2(tensor, lambda: 1.0)
+      explicit = Penalties.l2(tensor, lambda: 1.0, center: nil)
+      assert_close(default, explicit)
+    end
+
+    test "center works with reduction: :mean" do
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+      result = Penalties.l2(tensor, lambda: 1.0, center: :mean, reduction: :mean)
+      # mean of [1, 0, 1] = 0.666...
+      assert_close(result, Nx.tensor(2.0 / 3.0))
+    end
+
+    test "center works with clip option" do
+      tensor = Nx.tensor([100.0, 200.0, 300.0])
+      result = Penalties.l2(tensor, lambda: 1.0, center: 200.0, clip: 50.0)
+      # After center: [-100, 0, 100], after clip: [-50, 0, 50], squared: [2500, 0, 2500]
+      assert_close(result, Nx.tensor(5000.0))
+    end
+
+    test "gradient flows with center option" do
+      grad_fn = Nx.Defn.grad(fn x -> Penalties.l2(x, lambda: 1.0, center: :mean) end)
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+      grads = grad_fn.(tensor)
+      assert Nx.shape(grads) == {3}
+      assert_finite(grads)
+    end
+
+    test "center: :mean with different tensor values" do
+      tensor = Nx.tensor([10.0, 20.0, 30.0, 40.0, 50.0])
+      # mean = 30.0, centered = [-20, -10, 0, 10, 20]
+      # squared = [400, 100, 0, 100, 400], sum = 1000
+      result = Penalties.l2(tensor, lambda: 1.0, center: :mean)
+      assert_close(result, Nx.tensor(1000.0))
+    end
+
+    test "center: 0.0 is same as no centering" do
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+      centered = Penalties.l2(tensor, lambda: 1.0, center: 0.0)
+      default = Penalties.l2(tensor, lambda: 1.0)
+      assert_close(centered, default)
+    end
+
+    test "center: negative value" do
+      tensor = Nx.tensor([1.0, 2.0, 3.0])
+      # centered around -1.0: [2, 3, 4], squared = [4, 9, 16], sum = 29
+      result = Penalties.l2(tensor, lambda: 1.0, center: -1.0)
+      assert_close(result, Nx.tensor(29.0))
+    end
+
+    test "center: :mean works with multidimensional tensors" do
+      tensor = Nx.tensor([[1.0, 2.0], [3.0, 4.0]])
+      # mean = 2.5, centered = [[-1.5, -0.5], [0.5, 1.5]]
+      # squared = [[2.25, 0.25], [0.25, 2.25]], sum = 5.0
+      result = Penalties.l2(tensor, lambda: 1.0, center: :mean)
+      assert_close(result, Nx.tensor(5.0))
+    end
+
+    test "center with clip and mean reduction" do
+      tensor = Nx.tensor([100.0, 200.0, 300.0])
+      result = Penalties.l2(tensor, lambda: 1.0, center: 200.0, clip: 50.0, reduction: :mean)
+      # After center: [-100, 0, 100], after clip: [-50, 0, 50], squared: [2500, 0, 2500]
+      # mean = 5000 / 3 = 1666.666...
+      assert_close(result, Nx.tensor(5000.0 / 3.0))
+    end
+  end
+
   describe "elastic_net/2" do
     test "returns scalar for any input shape" do
       for shape <- [{4}, {2, 3}] do

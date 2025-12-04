@@ -14,6 +14,8 @@ mix run examples/curriculum_learning.exs
 mix run examples/gradient_tracking.exs
 mix run examples/polaris_integration.exs
 mix run examples/constraints.exs
+mix run examples/entropy_normalization.exs
+mix run examples/gradient_penalty.exs
 ```
 
 Run all examples:
@@ -46,7 +48,7 @@ Dynamic penalty scheduling for curriculum learning:
 - Elastic Net ratio shifting
 - Gradient flow verification
 
-### gradient_tracking.exs (v0.2)
+### gradient_tracking.exs
 
 Monitor gradient norms from regularization penalties:
 - Enable `track_grad_norms: true` in pipeline compute
@@ -54,7 +56,7 @@ Monitor gradient norms from regularization penalties:
 - Direct GradientTracker usage
 - Tensor validation with `NxPenalties.validate/1`
 
-### polaris_integration.exs (v0.2)
+### polaris_integration.exs
 
 Gradient-level weight decay transforms for Polaris optimizers:
 - L2 weight decay (AdamW-style)
@@ -62,10 +64,24 @@ Gradient-level weight decay transforms for Polaris optimizers:
 - Elastic Net decay
 - Composing multiple transforms
 
-### constraints.exs (v0.2)
+### constraints.exs
 
 Structural constraint penalties:
 - Orthogonality penalty for decorrelating representations
 - Consistency penalty for paired output stability
 - Different metrics (MSE, L1, cosine)
 - Soft vs hard modes
+
+### entropy_normalization.exs
+
+Entropy regularization with optional normalization:
+- Bonus vs penalty modes
+- Normalized entropy scaled to [0, 1]
+- Impact on pipelines and metrics
+
+### gradient_penalty.exs
+
+Gradient penalty primitives and cheaper proxies:
+- Full gradient norm penalty via `gradient_penalty/3`
+- WGAN-GP style interpolated penalty
+- Output magnitude proxy for performance

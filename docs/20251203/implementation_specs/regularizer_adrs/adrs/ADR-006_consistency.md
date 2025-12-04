@@ -12,136 +12,51 @@ Consistency regularization encourages a model to produce similar outputs for sim
 2. **Generalization** - smoother decision boundaries
 3. **Semi-supervised learning** - unlabeled data provides consistency signal
 
-In the context of Tinker, consistency can be measured between:
+Consistency can be measured between:
 - Original and augmented versions of the same prompt
 - Different samples from the same prompt (if using temperature > 0)
 - Predictions at different training steps (temporal consistency)
 
 ## Decision
 
-Implement `Tinkex.Regularizer.Consistency` for penalizing output divergence between paired inputs.
+Implement consistency as a tensor primitive `NxPenalties.Constraints.consistency/3` (supports `:mse`, `:l1`, `:cosine`, `:kl` metrics) with a Tinkex adapter that resolves paired outputs from `loss_fn_inputs`.
 
 ### Interface
 
 ```elixir
-defmodule Tinkex.Regularizer.Consistency do
+# NxPenalties primitive (tensor-only)
+loss = NxPenalties.Constraints.consistency(output1, output2,
+  metric: :mse,   # or :l1/:cosine/:kl
+  reduction: :mean
+)
+
+# Tinkex adapter (data-aware signature)
+defmodule Tinkex.Regularizers.Consistency do
   @behaviour Tinkex.Regularizer
-
-  @moduledoc """
-  Consistency regularizer for encouraging stable outputs.
-
-  Requires paired data: original and augmented/alternative inputs.
-  Penalizes divergence between their output distributions.
-
-  ## Data Format
-
-  Expects Datum pairs where `loss_fn_inputs` contains:
-  - `"original_logprobs"` or similar field for first view
-  - Current forward pass provides second view
-
-  Alternatively, use `:pair_field` to specify the reference.
-
-  ## Example
-
-      # Training data includes augmented view logprobs
-      datum = %Datum{
-        model_input: augmented_input,
-        loss_fn_inputs: %{
-          "original_logprobs" => original_logprobs
-        }
-      }
-
-      %RegularizerSpec{
-        fn: &Consistency.compute/3,
-        weight: 1.0,
-        name: "consistency",
-        opts: [pair_field: "original_logprobs", metric: :mse]
-      }
-  """
 
   @impl true
   def compute(data, logprobs, opts \\ []) do
-    pair_field = Keyword.get(opts, :pair_field, "original_logprobs")
+    reference = resolve_reference!(data, Keyword.get(opts, :pair_field, "original_logprobs"))
     metric = Keyword.get(opts, :metric, :mse)
+    reduction = Keyword.get(opts, :reduction, :mean)
 
-    # Extract reference logprobs from data
-    reference = extract_reference(data, pair_field)
+    loss =
+      NxPenalties.Constraints.consistency(
+        logprobs,
+        reference,
+        metric: metric,
+        reduction: reduction
+      )
 
-    unless reference do
-      raise ArgumentError, """
-      Consistency regularizer requires paired data.
-      Provide reference logprobs via loss_fn_inputs["#{pair_field}"]
-      """
-    end
-
-    # Compute divergence metric
-    {loss, metrics} = compute_divergence(logprobs, reference, metric)
-
-    {loss, Map.merge(metrics, %{"consistency_metric" => Atom.to_string(metric)})}
+    {loss, %{"consistency_metric" => Atom.to_string(metric)}}
   end
 
-  @impl true
-  def name, do: "consistency"
-
-  # Private helpers
-
-  defp extract_reference(data, field) do
+  defp resolve_reference!(data, field) do
     data
     |> List.first()
     |> Map.get(:loss_fn_inputs, %{})
-    |> Map.get(field)
-    |> maybe_to_tensor()
+    |> Map.fetch!(field)
   end
-
-  defp compute_divergence(logprobs, reference, metric) do
-    case metric do
-      :mse ->
-        # Mean squared error on logprobs
-        diff = Nx.subtract(logprobs, reference)
-        squared = Nx.power(diff, 2)
-        mse = Nx.mean(squared)
-        {mse, %{"mse" => Nx.to_number(mse)}}
-
-      :kl ->
-        # Symmetric KL (Jensen-Shannon style)
-        p = Nx.exp(logprobs)
-        q = Nx.exp(reference)
-
-        kl_pq = Nx.sum(Nx.multiply(p, Nx.subtract(logprobs, reference)), axes: [-1])
-        kl_qp = Nx.sum(Nx.multiply(q, Nx.subtract(reference, logprobs)), axes: [-1])
-
-        js = Nx.mean(Nx.add(kl_pq, kl_qp)) |> Nx.divide(2)
-        {js, %{"js_divergence" => Nx.to_number(js)}}
-
-      :cosine ->
-        # Cosine distance (1 - cosine similarity)
-        # Flatten to vectors
-        p_flat = Nx.reshape(logprobs, {:auto})
-        q_flat = Nx.reshape(reference, {:auto})
-
-        dot = Nx.sum(Nx.multiply(p_flat, q_flat))
-        norm_p = Nx.sqrt(Nx.sum(Nx.power(p_flat, 2)))
-        norm_q = Nx.sqrt(Nx.sum(Nx.power(q_flat, 2)))
-
-        cosine_sim = Nx.divide(dot, Nx.multiply(norm_p, norm_q))
-        cosine_dist = Nx.subtract(1, cosine_sim)
-
-        {cosine_dist, %{
-          "cosine_similarity" => Nx.to_number(cosine_sim),
-          "cosine_distance" => Nx.to_number(cosine_dist)
-        }}
-
-      :l1 ->
-        # L1 distance
-        diff = Nx.abs(Nx.subtract(logprobs, reference))
-        l1 = Nx.mean(diff)
-        {l1, %{"l1_distance" => Nx.to_number(l1)}}
-    end
-  end
-
-  defp maybe_to_tensor(%Tinkex.Types.TensorData{} = td), do: Tinkex.Types.TensorData.to_nx(td)
-  defp maybe_to_tensor(%Nx.Tensor{} = t), do: t
-  defp maybe_to_tensor(nil), do: nil
 end
 ```
 
@@ -149,8 +64,9 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `:pair_field` | string | `"original_logprobs"` | Field containing reference logprobs |
+| `:pair_field` | string | `"original_logprobs"` | Field containing reference logprobs (Tinkex adapter) |
 | `:metric` | atom | `:mse` | Divergence metric (`:mse`, `:kl`, `:cosine`, `:l1`) |
+| `:reduction` | `:mean` \| `:sum` \| `:none` | `:mean` | Aggregation method |
 
 > **Future extension:** `:temperature` for distribution sharpening before comparison is planned but not yet implemented.
 

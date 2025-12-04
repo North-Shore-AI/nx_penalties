@@ -159,6 +159,9 @@ defmodule NxPenalties.Divergences do
       * `:bonus` - Returns H(P) (positive, encourages high entropy)
       * `:penalty` - Returns -H(P) (negative, penalizes high entropy)
     * `:reduction` - How to aggregate over batches. Default: `:mean`
+    * `:normalize` - Normalize entropy by maximum possible value. Default: `false`
+      * `false` - Return raw entropy
+      * `true` - Divide by log(vocab_size) to get result in [0, 1]
 
   ## Examples
 
@@ -166,25 +169,39 @@ defmodule NxPenalties.Divergences do
       iex> NxPenalties.Divergences.entropy(logprobs)
       # Returns log(4) ≈ 1.386 (maximum entropy for 4 classes)
 
+      iex> logprobs = Nx.log(Nx.tensor([0.25, 0.25, 0.25, 0.25]))
+      iex> NxPenalties.Divergences.entropy(logprobs, normalize: true)
+      # Returns 1.0 (normalized maximum entropy)
+
   ## Mathematical Definition
 
       H(P) = -Σ p(x) * log(p(x))
 
   In log space:
       H(P) = -Σ exp(log_p) * log_p
+
+  When normalized:
+      H_norm(P) = H(P) / log(vocab_size)
   """
   @spec entropy(Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
   deftransform entropy(logprobs, opts \\ []) do
     mode = Keyword.get(opts, :mode, :bonus)
     reduction = Keyword.get(opts, :reduction, :mean)
+    normalize = Keyword.get(opts, :normalize, false)
 
-    case {mode, reduction} do
-      {:bonus, :mean} -> entropy_bonus_mean_impl(logprobs)
-      {:bonus, :sum} -> entropy_bonus_sum_impl(logprobs)
-      {:bonus, :none} -> entropy_bonus_none_impl(logprobs)
-      {:penalty, :mean} -> entropy_penalty_mean_impl(logprobs)
-      {:penalty, :sum} -> entropy_penalty_sum_impl(logprobs)
-      {:penalty, :none} -> entropy_penalty_none_impl(logprobs)
+    case {mode, reduction, normalize} do
+      {:bonus, :mean, false} -> entropy_bonus_mean_impl(logprobs)
+      {:bonus, :sum, false} -> entropy_bonus_sum_impl(logprobs)
+      {:bonus, :none, false} -> entropy_bonus_none_impl(logprobs)
+      {:penalty, :mean, false} -> entropy_penalty_mean_impl(logprobs)
+      {:penalty, :sum, false} -> entropy_penalty_sum_impl(logprobs)
+      {:penalty, :none, false} -> entropy_penalty_none_impl(logprobs)
+      {:bonus, :mean, true} -> entropy_bonus_mean_normalized_impl(logprobs)
+      {:bonus, :sum, true} -> entropy_bonus_sum_normalized_impl(logprobs)
+      {:bonus, :none, true} -> entropy_bonus_none_normalized_impl(logprobs)
+      {:penalty, :mean, true} -> entropy_penalty_mean_normalized_impl(logprobs)
+      {:penalty, :sum, true} -> entropy_penalty_sum_normalized_impl(logprobs)
+      {:penalty, :none, true} -> entropy_penalty_none_normalized_impl(logprobs)
     end
   end
 
@@ -219,5 +236,35 @@ defmodule NxPenalties.Divergences do
 
   defnp entropy_penalty_none_impl(logprobs) do
     Nx.negate(entropy_bonus_none_impl(logprobs))
+  end
+
+  # Normalized implementations
+  defnp entropy_bonus_mean_normalized_impl(logprobs) do
+    Nx.mean(entropy_bonus_none_normalized_impl(logprobs))
+  end
+
+  defnp entropy_bonus_sum_normalized_impl(logprobs) do
+    Nx.sum(entropy_bonus_none_normalized_impl(logprobs))
+  end
+
+  defnp entropy_bonus_none_normalized_impl(logprobs) do
+    raw = entropy_bonus_none_impl(logprobs)
+    vocab_size = Nx.axis_size(logprobs, -1)
+    # Convert vocab_size to a scalar tensor then take log
+    vocab_size_tensor = Nx.as_type(vocab_size, Nx.type(logprobs))
+    max_entropy = Nx.log(vocab_size_tensor)
+    Nx.divide(raw, max_entropy)
+  end
+
+  defnp entropy_penalty_mean_normalized_impl(logprobs) do
+    Nx.negate(entropy_bonus_mean_normalized_impl(logprobs))
+  end
+
+  defnp entropy_penalty_sum_normalized_impl(logprobs) do
+    Nx.negate(entropy_bonus_sum_normalized_impl(logprobs))
+  end
+
+  defnp entropy_penalty_none_normalized_impl(logprobs) do
+    Nx.negate(entropy_bonus_none_normalized_impl(logprobs))
   end
 end

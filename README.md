@@ -13,12 +13,6 @@
   <a href="https://hexdocs.pm/nx_penalties">
     <img src="https://img.shields.io/badge/docs-hexdocs-blue.svg" alt="Documentation">
   </a>
-  <a href="https://github.com/North-Shore-AI/nx_penalties/actions">
-    <img src="https://github.com/North-Shore-AI/nx_penalties/workflows/CI/badge.svg" alt="CI Status">
-  </a>
-  <a href="https://coveralls.io/github/North-Shore-AI/nx_penalties">
-    <img src="https://coveralls.io/repos/github/North-Shore-AI/nx_penalties/badge.svg" alt="Coverage Status">
-  </a>
   <a href="https://opensource.org/licenses/MIT">
     <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT">
   </a>
@@ -28,27 +22,18 @@
 
 ## Overview
 
-NxPenalties provides composable regularization functions for machine learning with [Nx](https://github.com/elixir-nx/nx). It fills the gap between [Axon](https://github.com/elixir-nx/axon) (model definition) and [Polaris](https://github.com/elixir-nx/polaris) (optimization) by providing the "missing middleware" for complex training objectives.
+NxPenalties is a tensor-only library of regularization primitives for [Nx](https://github.com/elixir-nx/nx). It is designed to be composable inside `defn` code and training loops, leaving any data-aware adaptation (e.g., resolving references from data structures) to downstream libraries such as Tinkex.
 
-### Why NxPenalties?
+### Features (v0.1.0)
 
-- **Axon explicitly rejects model-level regularization** - Regularization belongs in training, not model definition
-- **Polaris operates on gradients only** - Cannot see intermediate activations needed for activity regularization
-- **Scholar is traditional ML only** - Regularization tied to specific estimators, not composable
-
-NxPenalties provides standalone, JIT-compilable penalty functions that work with any Nx-based training loop.
-
-### Features
-
-- **L1 (Lasso)** - Sparse weight regularization via absolute values
-- **L2 (Ridge)** - Weight decay via squared norms
-- **Elastic Net** - Combined L1+L2 with tunable ratio
-- **KL Divergence** - Distribution matching for knowledge distillation
-- **JS Divergence** - Symmetric KL for distribution comparison
-- **Entropy** - Encourage/discourage prediction confidence
-- **Pipeline Composition** - Combine multiple penalties with individual weights
-- **Gradient-Compatible** - Full autodiff support for training
-- **Telemetry Integration** - Built-in metrics emission
+- **Penalties**: L1, L2 (with centering/clipping), Elastic Net
+- **Divergences**: KL, JS, Entropy (bonus/penalty, normalization)
+- **Constraints**: Orthogonality (soft/hard/spectral, axis options), Consistency (MSE/L1/Cosine/KL)
+- **Gradient Penalties**: Gradient norm, interpolated (WGAN-GP), output magnitude proxy
+- **Pipeline**: Compose penalties with weights, enable/disable, gradient-compatible computation
+- **Integrations**: Axon loss wrapping, Polaris gradient transforms (L1/L2/Elastic Net decay)
+- **Debugging**: Gradient norm tracking, NaN/Inf validation
+- **Telemetry**: Pipeline compute events
 
 ## Installation
 
@@ -83,33 +68,19 @@ elastic_loss = NxPenalties.elastic_net(weights, l1_ratio: 0.5)
 total_loss = Nx.add(base_loss, l1_loss)
 ```
 
-### Pipeline Composition (Recommended)
+### Pipeline Composition
 
-For production use, compose multiple penalties with individual weights:
+Compose multiple penalties with individual weights:
 
 ```elixir
-# Create a pipeline with multiple penalties
-pipeline = NxPenalties.pipeline([
-  {:l1, weight: 0.001},           # Sparsity
-  {:l2, weight: 0.01},            # Weight decay
-  {:entropy, weight: 0.1, mode: :bonus}  # Exploration bonus
-])
+pipeline =
+  NxPenalties.pipeline([
+    {:l1, weight: 0.001},
+    {:l2, weight: 0.01},
+    {:entropy, weight: 0.1, opts: [mode: :bonus]}
+  ])
 
-# Compute all penalties at once
 {total_penalty, metrics} = NxPenalties.compute(pipeline, model_outputs)
-
-# metrics contains:
-# %{
-#   "l1" => 8.5,
-#   "l1_weighted" => 0.0085,
-#   "l2" => 18.25,
-#   "l2_weighted" => 0.1825,
-#   "entropy" => ...,
-#   "entropy_weighted" => ...,
-#   "total" => 0.191...
-# }
-
-# Use in training
 total_loss = Nx.add(base_loss, total_penalty)
 ```
 
@@ -130,16 +101,12 @@ pipeline = NxPenalties.Pipeline.set_enabled(pipeline, :entropy, false)
 
 ### Gradient-Compatible Computation
 
-For use inside `defn` or when you need gradients to flow through:
+Use `compute_total/3` inside `defn`:
 
 ```elixir
-# Returns tensor (not converted to number) - gradient compatible
 total = NxPenalties.compute_total(pipeline, tensor)
 
-# Works with Nx.Defn.grad
-grad_fn = Nx.Defn.grad(fn t ->
-  NxPenalties.compute_total(pipeline, t)
-end)
+grad_fn = Nx.Defn.grad(fn t -> NxPenalties.compute_total(pipeline, t) end)
 gradients = grad_fn.(tensor)
 ```
 
@@ -158,6 +125,100 @@ js_loss = NxPenalties.js_divergence(p_logprobs, q_logprobs)
 entropy_penalty = NxPenalties.entropy(logprobs, mode: :penalty)  # Minimize entropy
 entropy_bonus = NxPenalties.entropy(logprobs, mode: :bonus)      # Maximize entropy
 ```
+
+## Gradient Penalties
+
+For Lipschitz smoothness (WGAN-GP style):
+
+```elixir
+# Full gradient penalty (expensive - use sparingly)
+loss_fn = fn x -> Nx.sum(Nx.pow(x, 2)) end
+gp = NxPenalties.gradient_penalty(loss_fn, tensor, target_norm: 1.0)
+
+# Cheaper proxy - output magnitude penalty
+mag_penalty = NxPenalties.output_magnitude_penalty(model_output, target: 1.0)
+
+# Interpolated gradient penalty (WGAN-GP)
+interp_gp = NxPenalties.interpolated_gradient_penalty(loss_fn, fake, real, target_norm: 1.0)
+```
+
+**Performance Warning**: Gradient penalties compute second-order derivatives and are computationally expensive. Best practices:
+- Apply every N training steps instead of every step
+- Use `output_magnitude_penalty/2` as a cheaper alternative
+- See `examples/gradient_penalty.exs` for usage patterns
+
+## Constraints
+
+Structural penalties for representations:
+
+```elixir
+alias NxPenalties.Constraints
+
+# Orthogonality - encourage uncorrelated representations
+hidden_states = Nx.tensor([[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]])
+
+# Soft mode: penalize off-diagonal correlations only
+penalty = Constraints.orthogonality(hidden_states, mode: :soft)
+
+# Hard mode: penalize deviation from identity matrix
+penalty = Constraints.orthogonality(hidden_states, mode: :hard)
+
+# Spectral mode: encourage uniform singular values
+penalty = Constraints.orthogonality(hidden_states, mode: :spectral)
+
+# Axis options for 3D tensors [batch, seq, vocab]
+penalty = Constraints.orthogonality(logits, axis: :sequence)   # Decorrelate positions
+penalty = Constraints.orthogonality(embeddings, axis: :vocabulary)  # Decorrelate dimensions
+```
+
+```elixir
+# Consistency - penalize divergence between paired outputs
+clean_output = model.(clean_input)
+noisy_output = model.(add_noise.(clean_input))
+
+# MSE (default)
+penalty = Constraints.consistency(clean_output, noisy_output)
+
+# L1 distance
+penalty = Constraints.consistency(clean_output, noisy_output, metric: :l1)
+
+# Cosine distance
+penalty = Constraints.consistency(clean_output, noisy_output, metric: :cosine)
+
+# Symmetric KL for log-probabilities
+penalty = Constraints.consistency(logprobs1, logprobs2, metric: :kl)
+```
+
+## Polaris Integration
+
+Gradient-level weight decay transforms (AdamW-style):
+
+```elixir
+alias NxPenalties.Integration.Polaris, as: PolarisIntegration
+
+# Add L2 weight decay to any optimizer
+optimizer =
+  Polaris.Optimizers.adam(learning_rate: 0.001)
+  |> PolarisIntegration.add_l2_decay(0.01)
+
+# Add L1 decay for sparsity
+optimizer =
+  Polaris.Optimizers.sgd(learning_rate: 0.01)
+  |> PolarisIntegration.add_l1_decay(0.001)
+
+# Elastic Net decay (combined L1 + L2)
+optimizer =
+  Polaris.Optimizers.adam(learning_rate: 0.001)
+  |> PolarisIntegration.add_elastic_net_decay(0.01, 0.3)  # 30% L1, 70% L2
+
+# Compose multiple transforms
+optimizer =
+  Polaris.Optimizers.adam(learning_rate: 0.001)
+  |> PolarisIntegration.add_l2_decay(0.01)
+  |> PolarisIntegration.add_l1_decay(0.001)
+```
+
+**Loss-Based vs Gradient-Based**: Loss-based regularization (pipeline) adds penalty to loss before backprop. Gradient-based (Polaris transforms) modifies gradients directly. They're equivalent for SGD but differ for adaptive optimizers like Adam—gradient-based is generally preferred for modern training.
 
 ## Axon Integration
 
@@ -190,7 +251,7 @@ model
 | Function | Description | Options |
 |----------|-------------|---------|
 | `l1/2` | L1 norm (Lasso) | `lambda`, `reduction` |
-| `l2/2` | L2 norm squared (Ridge) | `lambda`, `reduction` |
+| `l2/2` | L2 norm squared (Ridge) | `lambda`, `reduction`, `center`, `clip` |
 | `elastic_net/2` | Combined L1+L2 | `lambda`, `l1_ratio`, `reduction` |
 
 ### Divergence Functions
@@ -200,6 +261,14 @@ model
 | `kl_divergence/3` | KL(P \|\| Q) | `reduction` |
 | `js_divergence/3` | Jensen-Shannon | `reduction` |
 | `entropy/2` | Shannon entropy | `mode`, `reduction`, `normalize` |
+
+### Gradient Penalty Functions
+
+| Function | Description | Options |
+|----------|-------------|---------|
+| `gradient_penalty/3` | Gradient norm penalty (expensive) | `target_norm` |
+| `output_magnitude_penalty/2` | Cheaper proxy for gradient penalty | `target`, `reduction` |
+| `interpolated_gradient_penalty/4` | WGAN-GP style interpolated penalty | `target_norm` |
 
 ### Pipeline Functions
 
@@ -212,12 +281,29 @@ model
 | `Pipeline.update_weight/3` | Change penalty weight |
 | `Pipeline.set_enabled/3` | Enable/disable penalty |
 
-### Constraints
+### Constraint Functions
 
 | Function | Description | Options |
 |----------|-------------|---------|
-| `Constraints.orthogonality/2` | Decorrelation penalty | `mode`, `normalize` |
-| `Constraints.consistency/3` | Paired output consistency | `metric`, `reduction` |
+| `Constraints.orthogonality/2` | Decorrelation penalty | `mode` (`:soft`/`:hard`/`:spectral`), `normalize`, `axis` (`:rows`/`:sequence`/`:vocabulary`) |
+| `Constraints.consistency/3` | Paired output consistency | `metric` (`:mse`/`:l1`/`:cosine`/`:kl`), `reduction` |
+
+### Polaris Transforms
+
+| Function | Description | Parameters |
+|----------|-------------|------------|
+| `Integration.Polaris.add_l2_decay/2` | AdamW-style weight decay | `decay` (default: `0.01`) |
+| `Integration.Polaris.add_l1_decay/2` | Sparsity-inducing decay | `decay` (default: `0.001`) |
+| `Integration.Polaris.add_elastic_net_decay/3` | Combined L1+L2 decay | `decay`, `l1_ratio` |
+
+### Utility Functions
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `NxPenalties.validate/1` | Check for NaN/Inf | `{:ok, tensor}` or `{:error, :nan\|:inf}` |
+| `GradientTracker.compute_grad_norm/2` | Gradient L2 norm | `float() \| nil` |
+| `GradientTracker.pipeline_grad_norms/2` | Per-penalty grad norms | `map()` |
+| `GradientTracker.total_grad_norm/2` | Total pipeline grad norm | `float() \| nil` |
 
 ## Telemetry Events
 
@@ -240,6 +326,44 @@ NxPenalties emits telemetry events for monitoring:
 |-------|-------------|----------|
 | `[:nx_penalties, :pipeline, :compute, :start]` | `system_time` | `size` |
 | `[:nx_penalties, :pipeline, :compute, :stop]` | `duration` | `metrics`, `total` |
+
+## Debugging & Monitoring
+
+### Gradient Tracking
+
+Monitor which penalties contribute most to the gradient signal:
+
+```elixir
+pipeline = NxPenalties.pipeline([
+  {:l1, weight: 0.001},
+  {:l2, weight: 0.01},
+  {:entropy, weight: 0.1, opts: [mode: :penalty]}
+])
+
+# Enable gradient norm tracking
+{total, metrics} = NxPenalties.compute(pipeline, tensor, track_grad_norms: true)
+
+metrics["l1_grad_norm"]       # L2 norm of L1 penalty's gradient
+metrics["l2_grad_norm"]       # L2 norm of L2 penalty's gradient
+metrics["entropy_grad_norm"]  # L2 norm of entropy penalty's gradient
+metrics["total_grad_norm"]    # Combined gradient norm
+```
+
+**What it measures**: These are `∂penalty/∂(pipeline_input)`, not `∂penalty/∂params`. The "pipeline input" is whatever tensor you pass to `compute/3`—typically model outputs, activations, or logprobs.
+
+**Performance note**: Gradient tracking requires additional backward passes. Only enable when debugging or for periodic monitoring (e.g., every 100 steps).
+
+### Validation
+
+Check tensors for numerical issues:
+
+```elixir
+case NxPenalties.validate(tensor) do
+  {:ok, tensor} -> # Tensor is finite, proceed
+  {:error, :nan} -> Logger.warning("NaN detected in tensor")
+  {:error, :inf} -> Logger.warning("Inf detected in tensor")
+end
+```
 
 ## Performance
 
@@ -266,37 +390,27 @@ mix quality  # format + credo + dialyzer
 
 See the `examples/` directory for complete usage examples:
 
-- `basic_usage.exs` - Simple penalty functions
+- `basic_usage.exs` - L1, L2, Elastic Net penalty functions
 - `pipeline_composition.exs` - Pipeline creation and manipulation
-- `curriculum_learning.exs` - Dynamic weight adjustment
-- `axon_training.exs` - Axon integration
+- `curriculum_learning.exs` - Dynamic weight adjustment over epochs
+- `axon_training.exs` - Axon neural network integration
+- `polaris_integration.exs` - Gradient-level weight decay transforms
+- `constraints.exs` - Orthogonality and consistency penalties
+- `entropy_normalization.exs` - Entropy bonus/penalty with normalization
+- `gradient_penalty.exs` - Gradient penalties and proxies
+- `gradient_tracking.exs` - Monitoring gradient norms
 
 Run examples with:
 
 ```bash
 mix run examples/basic_usage.exs
+./examples/run_all.sh  # Run all examples
 ```
 
-## Roadmap
+## Notes
 
-### v0.1 (Current)
-- Core penalties: L1, L2, Elastic Net
-- Divergences: KL, JS, Entropy
-- Pipeline composition
-- Axon integration
-- Telemetry
-
-### (Planned)
-- Constraints: orthogonality, consistency (full implementation)
-- Gradient tracking / norm monitoring
-- Polaris gradient transforms
-- `Pipeline.Multi` for named multi-tensor inputs
-- Livebook examples
-
-### (Future)
-- Activity regularization via layer capture
-- Auxiliary loss infrastructure
-- Multi-head output support
+- NxPenalties is tensor-only. Data-aware adapters (e.g., selecting targets from `loss_fn_inputs`) live in downstream libraries such as Tinkex.
+- Gradient penalties are computationally heavy; use sparingly and consider proxies.
 
 ## Contributing
 

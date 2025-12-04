@@ -29,8 +29,9 @@ NxPenalties follows three core principles:
 │ .Penalties       │ │ .Divergences     │ │ .Constraints     │
 │                  │ │                  │ │                  │
 │ • l1/2           │ │ • kl_divergence/3│ │ • orthogonality/2│
-│ • l2/2           │ │ • js_divergence/3│ │ • gradient_pen/3 │
-│ • elastic_net/2  │ │ • entropy/2      │ │ • consistency/3  │
+│ • l2/2           │ │ • js_divergence/3│ │ • consistency/3  │
+│ • elastic_net/2  │ │ • entropy/2      │ │ • orthogonality/2│
+│                  │ │                  │ │ (GradientPenalty)│
 └──────────────────┘ └──────────────────┘ └──────────────────┘
           │                    │                    │
           └────────────────────┼────────────────────┘
@@ -91,10 +92,18 @@ end
 
 **Functions**:
 - `orthogonality/2` - Penalize correlated dimensions
-- `gradient_penalty/3` - Lipschitz constraint (WGAN-GP style)
 - `consistency/3` - Penalize divergence between paired inputs
 
 **Complexity**: These require more sophisticated tensor operations and may need gradients of gradients.
+
+### NxPenalties.GradientPenalty
+
+**Purpose**: Lipschitz-style gradient control (tensor-only)
+
+**Functions**:
+- `gradient_penalty/3` - Gradient norm penalty (expensive)
+- `interpolated_gradient_penalty/4` - WGAN-GP style interpolation
+- `output_magnitude_penalty/2` - Cheaper proxy without second-order grads
 
 ### NxPenalties.Pipeline
 
@@ -120,13 +129,15 @@ pipeline =
   |> NxPenalties.Pipeline.add(:l1, &NxPenalties.Penalties.l1/2, weight: 0.001)
   |> NxPenalties.Pipeline.add(:l2, &NxPenalties.Penalties.l2/2, weight: 0.01)
   |> NxPenalties.Pipeline.add(:entropy, &NxPenalties.Divergences.entropy/2,
-       weight: 0.1, mode: :maximize)
+       weight: 0.1, opts: [mode: :penalty])
 ```
 
 **Execution**:
 ```elixir
 # Returns {total_loss, metrics_map}
 {loss, metrics} = NxPenalties.Pipeline.compute(pipeline, tensor, opts)
+
+# NxPenalties pipelines are single-tensor; data-aware adapters live in Tinkex.
 ```
 
 ### NxPenalties.Integration.Axon
@@ -186,26 +197,21 @@ def add_l1_decay(decay \\ 0.01) do
 end
 ```
 
-### NxPenalties.Telemetry
+### Telemetry
 
-**Purpose**: Instrumentation for monitoring penalty values during training
+**Purpose**: Instrumentation for monitoring penalty values during training (tensor-only in NxPenalties; data-aware telemetry in Tinkex).
 
-**Events**:
+**NxPenalties Events**:
 ```elixir
 [:nx_penalties, :penalty, :compute, :start]
 [:nx_penalties, :penalty, :compute, :stop]
 [:nx_penalties, :pipeline, :compute, :stop]
 ```
 
-**Metadata**:
+**Tinkex (data-aware) can emit**:
 ```elixir
-%{
-  penalty_name: :l1,
-  value: 0.0023,
-  weight: 0.001,
-  weighted_contribution: 0.0000023,
-  tensor_shape: {128, 512}
-}
+[:tinkex, :regularizer, :gradients]
+[:tinkex, :regularizer, :compute, :start|:stop|:exception]
 ```
 
 ## Critical Design Decisions

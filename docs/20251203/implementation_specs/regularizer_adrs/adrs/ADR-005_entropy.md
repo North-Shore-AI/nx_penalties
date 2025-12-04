@@ -18,84 +18,43 @@ The choice depends on the task:
 
 ## Decision
 
-Implement `Tinkex.Regularizer.Entropy` with configurable direction (maximize or minimize).
+Implement entropy regularization as a tensor primitive in `NxPenalties.Divergences.entropy/2` (configurable direction, normalization) and a Tinkex adapter to fit the `compute/3` contract.
 
 ### Interface
 
 ```elixir
-defmodule Tinkex.Regularizer.Entropy do
+# Tensor primitive (NxPenalties)
+entropy = NxPenalties.Divergences.entropy(logprobs,
+  mode: :bonus,   # or :penalty
+  reduction: :mean, # or :sum/:none
+  normalize: false
+)
+
+# Tinkex adapter (data-aware signature)
+defmodule Tinkex.Regularizers.Entropy do
   @behaviour Tinkex.Regularizer
-
-  @moduledoc """
-  Entropy regularizer for controlling output distribution uncertainty.
-
-  H(P) = -Σ P(x) * log(P(x))
-
-  ## Modes
-
-  - `:maximize` (default) - adds entropy as reward, encourages diversity
-  - `:minimize` - subtracts entropy, encourages confidence
-
-  ## Example
-
-      # Encourage diverse outputs
-      %RegularizerSpec{
-        fn: &Entropy.compute/3,
-        weight: 0.01,
-        name: "entropy_bonus",
-        opts: [mode: :maximize]
-      }
-
-      # Encourage confident outputs
-      %RegularizerSpec{
-        fn: &Entropy.compute/3,
-        weight: 0.01,
-        name: "entropy_penalty",
-        opts: [mode: :minimize]
-      }
-  """
 
   @impl true
   def compute(_data, logprobs, opts \\ []) do
-    mode = Keyword.get(opts, :mode, :maximize)
-    normalize = Keyword.get(opts, :normalize, false)
-
-    # H = -Σ p * log(p) = -Σ exp(logp) * logp
-    p = Nx.exp(logprobs)
-    entropy_pointwise = Nx.negate(Nx.multiply(p, logprobs))
-
-    # Sum over vocabulary dimension (last axis)
-    entropy_per_position = Nx.sum(entropy_pointwise, axes: [-1])
-
-    # Optionally normalize by max entropy (log of vocab size)
-    entropy_per_position =
-      if normalize do
-        vocab_size = Nx.axis_size(logprobs, -1)
-        max_entropy = :math.log(vocab_size)
-        Nx.divide(entropy_per_position, max_entropy)
-      else
-        entropy_per_position
+    mode =
+      case Keyword.get(opts, :mode, :maximize) do
+        :maximize -> :bonus
+        :minimize -> :penalty
+        other -> other
       end
 
-    # Mean over batch/sequence
-    mean_entropy = Nx.mean(entropy_per_position)
+    entropy =
+      NxPenalties.Divergences.entropy(logprobs,
+        mode: mode,
+        normalize: Keyword.get(opts, :normalize, false),
+        reduction: Keyword.get(opts, :reduction, :mean)
+      )
 
-    # Apply direction: maximize returns negative (to minimize loss)
-    loss = case mode do
-      :maximize -> Nx.negate(mean_entropy)  # Reward high entropy
-      :minimize -> mean_entropy              # Penalize high entropy
-    end
-
-    {loss, %{
-      "entropy_mean" => Nx.to_number(mean_entropy),
-      "entropy_min" => Nx.to_number(Nx.reduce_min(entropy_per_position)),
-      "entropy_max" => Nx.to_number(Nx.reduce_max(entropy_per_position)),
+    {entropy, %{
+      "entropy" => Nx.to_number(entropy),
       "mode" => Atom.to_string(mode)
     }}
   end
-
-  @impl true
-  def name, do: "entropy"
 end
 ```
 
@@ -103,8 +62,9 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `:mode` | `:maximize` \| `:minimize` | `:maximize` | Direction of regularization |
+| `:mode` | `:bonus`/`:penalty` (NxPenalties) or `:maximize`/`:minimize` (adapter) | `:maximize` | Direction of regularization |
 | `:normalize` | boolean | `false` | Normalize by max possible entropy |
+| `:reduction` | `:mean` \| `:sum` \| `:none` | `:mean` | Aggregation |
 
 > **Future extension:** `:temperature` for distribution sharpening is documented below but not yet implemented in `compute/3`.
 

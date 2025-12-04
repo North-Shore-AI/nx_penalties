@@ -93,6 +93,11 @@ defmodule NxPenalties.Penalties do
       * `:mean` - Mean of squared values
     * `:clip` - Maximum absolute value before squaring. Default: `nil` (no clip)
       Useful for preventing overflow with very large values.
+    * `:center` - Reference value for centering. Default: `nil` (no centering)
+      * `nil` - No centering (compute Σx²)
+      * `:mean` - Center around tensor mean (compute Σ(x - mean(x))²)
+      * `number` - Center around specific value (compute Σ(x - value)²)
+      Centering happens before clipping.
 
   ## Examples
 
@@ -103,21 +108,66 @@ defmodule NxPenalties.Penalties do
         1.4
       >
 
+      iex> tensor = Nx.tensor([1.0, 2.0, 3.0])
+      iex> NxPenalties.Penalties.l2(tensor, lambda: 1.0, center: :mean)
+      #Nx.Tensor<
+        f32
+        2.0
+      >
+
   ## Gradient
 
-  The gradient is linear: ∂L2/∂x = 2λx
+  The gradient is linear: ∂L2/∂x = 2λx (or 2λ(x - center) when centered)
   """
   @spec l2(Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
   deftransform l2(tensor, opts \\ []) do
     lambda = Keyword.get(opts, :lambda, 1.0)
     reduction = Keyword.get(opts, :reduction, :sum)
     clip_val = Keyword.get(opts, :clip, nil)
+    center = Keyword.get(opts, :center, nil)
 
-    case {reduction, clip_val} do
-      {:sum, nil} -> l2_sum_impl(tensor, lambda)
-      {:mean, nil} -> l2_mean_impl(tensor, lambda)
-      {:sum, clip} -> l2_sum_clip_impl(tensor, lambda, clip)
-      {:mean, clip} -> l2_mean_clip_impl(tensor, lambda, clip)
+    case {reduction, clip_val, center} do
+      # No centering, no clip
+      {:sum, nil, nil} ->
+        l2_sum_impl(tensor, lambda)
+
+      {:mean, nil, nil} ->
+        l2_mean_impl(tensor, lambda)
+
+      # No centering, with clip
+      {:sum, clip, nil} ->
+        l2_sum_clip_impl(tensor, lambda, clip)
+
+      {:mean, clip, nil} ->
+        l2_mean_clip_impl(tensor, lambda, clip)
+
+      # Center around mean, no clip
+      {:sum, nil, :mean} ->
+        l2_sum_center_mean_impl(tensor, lambda)
+
+      {:mean, nil, :mean} ->
+        l2_mean_center_mean_impl(tensor, lambda)
+
+      # Center around mean, with clip
+      {:sum, clip, :mean} ->
+        l2_sum_center_mean_clip_impl(tensor, lambda, clip)
+
+      {:mean, clip, :mean} ->
+        l2_mean_center_mean_clip_impl(tensor, lambda, clip)
+
+      # Center around value, no clip
+      {:sum, nil, center_val} ->
+        l2_sum_center_value_impl(tensor, lambda, center_val)
+
+      {:mean, nil, center_val} ->
+        l2_mean_center_value_impl(tensor, lambda, center_val)
+
+      # Center around value, with clip
+      {:sum, clip, center_val} ->
+        l2_sum_center_value_clip_impl(tensor, lambda, center_val, clip)
+
+      {:mean, clip, center_val} ->
+        l2_mean_center_value_clip_impl(tensor, lambda, center_val, clip)
     end
   end
 
@@ -136,6 +186,56 @@ defmodule NxPenalties.Penalties do
 
   defnp l2_mean_clip_impl(tensor, lambda, clip_val) do
     clipped = Nx.clip(tensor, Nx.negate(clip_val), clip_val)
+    Nx.multiply(Nx.mean(Nx.pow(clipped, 2)), lambda)
+  end
+
+  # Center around mean implementations
+  defnp l2_sum_center_mean_impl(tensor, lambda) do
+    mean = Nx.mean(tensor)
+    centered = Nx.subtract(tensor, mean)
+    Nx.multiply(Nx.sum(Nx.pow(centered, 2)), lambda)
+  end
+
+  defnp l2_mean_center_mean_impl(tensor, lambda) do
+    mean = Nx.mean(tensor)
+    centered = Nx.subtract(tensor, mean)
+    Nx.multiply(Nx.mean(Nx.pow(centered, 2)), lambda)
+  end
+
+  defnp l2_sum_center_mean_clip_impl(tensor, lambda, clip_val) do
+    mean = Nx.mean(tensor)
+    centered = Nx.subtract(tensor, mean)
+    clipped = Nx.clip(centered, Nx.negate(clip_val), clip_val)
+    Nx.multiply(Nx.sum(Nx.pow(clipped, 2)), lambda)
+  end
+
+  defnp l2_mean_center_mean_clip_impl(tensor, lambda, clip_val) do
+    mean = Nx.mean(tensor)
+    centered = Nx.subtract(tensor, mean)
+    clipped = Nx.clip(centered, Nx.negate(clip_val), clip_val)
+    Nx.multiply(Nx.mean(Nx.pow(clipped, 2)), lambda)
+  end
+
+  # Center around value implementations
+  defnp l2_sum_center_value_impl(tensor, lambda, center_value) do
+    centered = Nx.subtract(tensor, center_value)
+    Nx.multiply(Nx.sum(Nx.pow(centered, 2)), lambda)
+  end
+
+  defnp l2_mean_center_value_impl(tensor, lambda, center_value) do
+    centered = Nx.subtract(tensor, center_value)
+    Nx.multiply(Nx.mean(Nx.pow(centered, 2)), lambda)
+  end
+
+  defnp l2_sum_center_value_clip_impl(tensor, lambda, center_value, clip_val) do
+    centered = Nx.subtract(tensor, center_value)
+    clipped = Nx.clip(centered, Nx.negate(clip_val), clip_val)
+    Nx.multiply(Nx.sum(Nx.pow(clipped, 2)), lambda)
+  end
+
+  defnp l2_mean_center_value_clip_impl(tensor, lambda, center_value, clip_val) do
+    centered = Nx.subtract(tensor, center_value)
+    clipped = Nx.clip(centered, Nx.negate(clip_val), clip_val)
     Nx.multiply(Nx.mean(Nx.pow(clipped, 2)), lambda)
   end
 

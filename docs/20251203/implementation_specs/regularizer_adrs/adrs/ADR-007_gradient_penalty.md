@@ -18,131 +18,54 @@ In Tinker's context, we can apply gradient penalties to the relationship between
 
 ## Decision
 
-Implement `Tinkex.Regularizer.GradientPenalty` for penalizing large gradient norms.
+Implement gradient penalties via `NxPenalties.GradientPenalty` primitives, with a Tinkex adapter to fit the data/logprobs regularizer contract.
 
 ### Interface
 
 ```elixir
-defmodule Tinkex.Regularizer.GradientPenalty do
+# Tensor primitives (NxPenalties)
+gp = NxPenalties.GradientPenalty.gradient_penalty(loss_fn, logprobs, target_norm: 1.0)
+interp_gp =
+  NxPenalties.GradientPenalty.interpolated_gradient_penalty(
+    loss_fn,
+    fake_logprobs,
+    real_logprobs,
+    target_norm: 1.0
+  )
+proxy = NxPenalties.GradientPenalty.output_magnitude_penalty(logprobs, target: 1.0)
+
+# Tinkex adapter (data-aware signature)
+defmodule Tinkex.Regularizers.GradientPenalty do
   @behaviour Tinkex.Regularizer
-
-  @moduledoc """
-  Gradient penalty regularizer for Lipschitz smoothness.
-
-  Penalizes ||∇_x f(x)||² to encourage bounded gradients.
-
-  ## Modes
-
-  - `:output_wrt_logprobs` - gradient of loss w.r.t. logprobs (default)
-  - `:interpolated` - WGAN-GP style on interpolated points
-
-  ## Note
-
-  This regularizer uses Nx.Defn.grad internally, which may add
-  computational overhead. Consider using sparingly or with
-  lower weight.
-
-  ## Example
-
-      %RegularizerSpec{
-        fn: &GradientPenalty.compute/3,
-        weight: 10.0,
-        name: "gradient_penalty",
-        opts: [target_norm: 1.0]
-      }
-  """
-
-  import Nx.Defn
 
   @impl true
   def compute(data, logprobs, opts \\ []) do
-    target_norm = Keyword.get(opts, :target_norm, 1.0)
-    mode = Keyword.get(opts, :mode, :output_wrt_logprobs)
+    mode = Keyword.get(opts, :mode, :output)
+    loss_fn = Keyword.get(opts, :loss_fn, fn x -> Nx.sum(x) end)
 
     case mode do
-      :output_wrt_logprobs ->
-        compute_logprob_gradient_penalty(logprobs, target_norm)
+      :output ->
+        penalty = NxPenalties.GradientPenalty.gradient_penalty(loss_fn, logprobs, opts)
+        {penalty, %{}}
 
       :interpolated ->
-        reference = get_reference(data, opts)
-        compute_interpolated_penalty(logprobs, reference, target_norm)
+        reference =
+          data
+          |> List.first()
+          |> Map.get(:loss_fn_inputs, %{})
+          |> Map.fetch!(Keyword.get(opts, :reference_field, :reference_logprobs))
+
+        penalty =
+          NxPenalties.GradientPenalty.interpolated_gradient_penalty(
+            loss_fn,
+            logprobs,
+            reference,
+            opts
+          )
+
+        {penalty, %{}}
     end
   end
-
-  @impl true
-  def name, do: "gradient_penalty"
-
-  # Compute gradient penalty on logprobs directly
-  defp compute_logprob_gradient_penalty(logprobs, target_norm) do
-    # Define a simple function whose gradient we'll penalize
-    # Using sum of logprobs as proxy for "output"
-    grad_fn = fn lp -> Nx.sum(lp) end
-
-    # Compute gradient
-    grad = Nx.Defn.grad(grad_fn).(logprobs)
-
-    # Compute gradient norm
-    grad_norm = compute_norm(grad)
-
-    # Penalty: (||grad|| - target)²
-    deviation = Nx.subtract(grad_norm, target_norm)
-    penalty = Nx.power(deviation, 2)
-
-    {penalty, %{
-      "gradient_norm" => Nx.to_number(grad_norm),
-      "target_norm" => target_norm,
-      "penalty" => Nx.to_number(penalty)
-    }}
-  end
-
-  # WGAN-GP style: interpolate between real and generated, penalize gradient
-  defp compute_interpolated_penalty(logprobs, reference, target_norm) do
-    # Random interpolation coefficient
-    epsilon = Nx.random_uniform(Nx.shape(logprobs), type: Nx.type(logprobs))
-
-    # Interpolated points
-    interpolated = Nx.add(
-      Nx.multiply(epsilon, logprobs),
-      Nx.multiply(Nx.subtract(1, epsilon), reference)
-    )
-
-    # Compute gradient at interpolated points
-    grad_fn = fn x -> Nx.sum(x) end
-    grad = Nx.Defn.grad(grad_fn).(interpolated)
-
-    # Gradient norm per sample
-    grad_norm = compute_norm(grad)
-
-    # WGAN-GP penalty: (||grad|| - 1)²
-    deviation = Nx.subtract(grad_norm, target_norm)
-    penalty = Nx.mean(Nx.power(deviation, 2))
-
-    {penalty, %{
-      "gradient_norm_mean" => Nx.to_number(Nx.mean(grad_norm)),
-      "gradient_norm_max" => Nx.to_number(Nx.reduce_max(grad_norm)),
-      "target_norm" => target_norm,
-      "penalty" => Nx.to_number(penalty)
-    }}
-  end
-
-  defp compute_norm(tensor) do
-    # L2 norm: sqrt(sum(x²))
-    squared = Nx.power(tensor, 2)
-    Nx.sqrt(Nx.sum(squared))
-  end
-
-  defp get_reference(data, opts) do
-    field = Keyword.get(opts, :reference_field, "reference_logprobs")
-    data
-    |> List.first()
-    |> Map.get(:loss_fn_inputs, %{})
-    |> Map.get(field)
-    |> maybe_to_tensor()
-  end
-
-  defp maybe_to_tensor(%Tinkex.Types.TensorData{} = td), do: Tinkex.Types.TensorData.to_nx(td)
-  defp maybe_to_tensor(%Nx.Tensor{} = t), do: t
-  defp maybe_to_tensor(nil), do: nil
 end
 ```
 
@@ -150,9 +73,10 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `:target_norm` | float | `1.0` | Target gradient norm (1.0 for 1-Lipschitz) |
-| `:mode` | atom | `:output_wrt_logprobs` | Gradient computation mode |
-| `:reference_field` | string | `"reference_logprobs"` | For interpolated mode |
+| `:target_norm` | float | `1.0` | Target gradient norm (NxPenalties) |
+| `:mode` | atom | `:output` | Gradient computation mode (adapter) |
+| `:reference_field` | string/atom | `"reference_logprobs"` | For interpolated mode (adapter) |
+| `:loss_fn` | function | `fn x -> Nx.sum(x) end` | Function whose gradient is penalized (adapter) |
 
 ## Consequences
 

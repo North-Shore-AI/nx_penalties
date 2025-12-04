@@ -2,9 +2,6 @@ defmodule NxPenalties.GradientTracker do
   @moduledoc """
   Computes gradient norms for regularizers using Nx automatic differentiation.
 
-  > **v0.2 Preview**: Basic gradient norm computation available.
-  > Full pipeline integration coming in v0.2.
-
   ## Purpose
 
   When training with multiple regularizers, it's crucial to understand which
@@ -16,7 +13,7 @@ defmodule NxPenalties.GradientTracker do
 
   ## Usage
 
-  Enable in pipeline computation (v0.2):
+  Enable in pipeline computation:
 
       {total, metrics} = NxPenalties.compute(pipeline, tensor, track_grad_norms: true)
 

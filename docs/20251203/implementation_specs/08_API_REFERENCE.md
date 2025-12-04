@@ -255,8 +255,7 @@ Create a new empty pipeline.
 
 ## Options
 
-  * `:reduction` - `:sum` or `:mean` (default: `:sum`)
-  * `:scale` - Global scale factor (default: `1.0`)
+  * `:name` - Optional identifier for logging/telemetry
 """
 @spec new(keyword()) :: Pipeline.t()
 def new(opts \\ [])
@@ -383,12 +382,11 @@ def add_gradient_clipping(optimizer, max_norm \\ 1.0)
 
 # Pipeline types
 @type penalty_fn :: (tensor(), opts() -> tensor())
-@type entry :: {atom(), penalty_fn(), number(), opts(), boolean()}
+@type entry :: {atom(), penalty_fn(), number() | tensor(), opts(), boolean()}
 
 @type pipeline :: %Pipeline{
   entries: [entry()],
-  reduction: :sum | :mean,
-  scale: number() | tensor()
+  name: String.t() | nil
 }
 
 # Integration types
@@ -442,6 +440,7 @@ def validate(tensor)
 | `[:nx_penalties, :penalty, :compute, :stop]` | `%{duration: ns, value: float}` | `%{name: atom}` |
 | `[:nx_penalties, :pipeline, :compute, :start]` | `%{system_time: t}` | `%{size: int}` |
 | `[:nx_penalties, :pipeline, :compute, :stop]` | `%{duration: ns}` | `%{metrics: map}` |
+| `[:tinkex, :regularizer, :gradients]` | `%{total_norm: float}` | `%{regularizer_count: int}` |
 
 ---
 

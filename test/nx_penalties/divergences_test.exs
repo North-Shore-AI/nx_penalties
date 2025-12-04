@@ -187,6 +187,69 @@ defmodule NxPenalties.DivergencesTest do
     end
   end
 
+  describe "entropy/2 with normalize option" do
+    test "normalized uniform distribution has entropy ~1.0" do
+      vocab_size = 10
+      # Uniform distribution: each prob = 1/10, logprob = log(1/10) = -log(10)
+      uniform_logprobs = Nx.broadcast(Nx.tensor(-:math.log(vocab_size)), {1, vocab_size})
+      result = Divergences.entropy(uniform_logprobs, normalize: true, mode: :bonus)
+      assert_close(result, Nx.tensor(1.0), atol: 1.0e-4)
+    end
+
+    test "normalized one-hot distribution has entropy ~0.0" do
+      # One-hot: one token has prob ~1, others ~0
+      one_hot_logprobs = Nx.tensor([[0.0, -100.0, -100.0, -100.0]])
+      result = Divergences.entropy(one_hot_logprobs, normalize: true, mode: :bonus)
+      assert_close(result, Nx.tensor(0.0), atol: 1.0e-4)
+    end
+
+    test "normalize: false returns raw entropy" do
+      vocab_size = 8
+      uniform_logprobs = Nx.broadcast(Nx.tensor(-:math.log(vocab_size)), {1, vocab_size})
+      result = Divergences.entropy(uniform_logprobs, normalize: false, mode: :bonus)
+      # Raw max entropy = log(8) ≈ 2.079
+      assert_close(result, Nx.tensor(:math.log(vocab_size)), atol: 1.0e-4)
+    end
+
+    test "normalized entropy is in [0, 1] range" do
+      for _ <- 1..10 do
+        logprobs = random_logprobs({4, 32})
+        result = Divergences.entropy(logprobs, normalize: true, mode: :bonus)
+        value = Nx.to_number(result)
+        assert value >= 0.0 and value <= 1.0 + 1.0e-5, "Normalized entropy #{value} outside [0,1]"
+      end
+    end
+
+    test "normalize works with penalty mode" do
+      vocab_size = 4
+      uniform_logprobs = Nx.broadcast(Nx.tensor(-:math.log(vocab_size)), {1, vocab_size})
+      bonus = Divergences.entropy(uniform_logprobs, normalize: true, mode: :bonus)
+      penalty = Divergences.entropy(uniform_logprobs, normalize: true, mode: :penalty)
+      assert_close(Nx.negate(bonus), penalty)
+    end
+
+    test "normalize works with all reduction modes" do
+      logprobs = random_logprobs({2, 8})
+
+      mean_result = Divergences.entropy(logprobs, normalize: true, reduction: :mean)
+      assert Nx.shape(mean_result) == {}
+
+      sum_result = Divergences.entropy(logprobs, normalize: true, reduction: :sum)
+      assert Nx.shape(sum_result) == {}
+
+      none_result = Divergences.entropy(logprobs, normalize: true, reduction: :none)
+      assert Nx.shape(none_result) == {2}
+    end
+
+    test "gradient flows with normalize option" do
+      grad_fn = Nx.Defn.grad(fn x -> Divergences.entropy(x, normalize: true) end)
+      logprobs = random_logprobs({4, 16})
+      grads = grad_fn.(logprobs)
+      assert Nx.shape(grads) == {4, 16}
+      assert_finite(grads)
+    end
+  end
+
   describe "numerical stability" do
     test "KL handles near-zero probabilities" do
       # Very peaked distribution

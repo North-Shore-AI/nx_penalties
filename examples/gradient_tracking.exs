@@ -1,4 +1,4 @@
-# Gradient Tracking Examples (v0.2)
+# Gradient Tracking Examples
 #
 # Run with: mix run examples/gradient_tracking.exs
 #

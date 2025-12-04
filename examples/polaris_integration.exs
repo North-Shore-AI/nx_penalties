@@ -1,4 +1,4 @@
-# Polaris Integration Examples (v0.2)
+# Polaris Integration Examples
 #
 # Run with: mix run examples/polaris_integration.exs
 #

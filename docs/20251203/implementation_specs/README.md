@@ -14,7 +14,7 @@ NxPenalties is a standalone Elixir library providing composable regularization p
 # Simple penalty
 l1_loss = NxPenalties.l1(params.weights)
 
-# Pipeline composition (recommended)
+# Pipeline composition (tensor-only; data-aware pipelines live in Tinkex)
 pipeline = NxPenalties.pipeline([
   {:l1, weight: 0.001},    # Sparsity
   {:l2, weight: 0.01},     # Weight decay
@@ -42,7 +42,7 @@ total_loss = base_loss + total_penalty
 | [08_API_REFERENCE.md](./08_API_REFERENCE.md) | Complete function signatures | Reference |
 | [09_NUMERICAL_STABILITY.md](./09_NUMERICAL_STABILITY.md) | Stability patterns, edge cases | Critical |
 | [10_BACKEND_COMPATIBILITY.md](./10_BACKEND_COMPATIBILITY.md) | EXLA/Torchx testing matrix | Critical |
-| [11_GRADIENT_TRACKING.md](./11_GRADIENT_TRACKING.md) | Gradient norm monitoring (from tinkex) | Phase 2 |
+| [11_GRADIENT_TRACKING.md](./11_GRADIENT_TRACKING.md) | Gradient norm monitoring (Tinkex pipeline) | Phase 2 |
 
 ## Strategic Context
 
@@ -118,9 +118,8 @@ lib/
 └── nx_penalties/
     ├── penalties.ex           # L1, L2, elastic_net
     ├── divergences.ex         # kl, js, entropy
-    ├── constraints.ex         # orthogonality, gradient_penalty
-    ├── pipeline.ex            # Composition engine
-    ├── gradient_tracker.ex    # Gradient norm monitoring
+    ├── constraints.ex         # orthogonality, consistency
+    ├── pipeline.ex            # Composition engine (tensor-only)
     ├── telemetry.ex           # Instrumentation
     └── integration/
         ├── axon.ex            # Axon.Loop helpers

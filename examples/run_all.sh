@@ -20,6 +20,8 @@ examples=(
   "gradient_tracking.exs"
   "polaris_integration.exs"
   "constraints.exs"
+  "entropy_normalization.exs"
+  "gradient_penalty.exs"
 )
 
 for example in "${examples[@]}"; do

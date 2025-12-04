@@ -18,44 +18,45 @@ Note: Traditional "weight decay" is applied by the optimizer (Adam in Tinker's c
 
 ## Decision
 
-Implement `Tinkex.Regularizer.L2` with configurable targets and optional centering.
+Implement L2 weight decay as a tensor primitive in `NxPenalties.Penalties.l2/2`, with a Tinkex adapter to choose targets and centering.
 
 ### Interface
 
 ```elixir
-defmodule Tinkex.Regularizer.L2 do
+# Tensor primitive (NxPenalties)
+l2_value = NxPenalties.Penalties.l2(tensor,
+  lambda: 1.0,
+  reduction: :sum, # or :mean
+  center: nil      # or :mean / number
+)
+
+# Tinkex adapter (data-aware)
+defmodule Tinkex.Regularizers.L2 do
   @behaviour Tinkex.Regularizer
 
   @impl true
   def compute(data, logprobs, opts \\ []) do
     target = Keyword.get(opts, :target, :logprobs)
+    reduction = Keyword.get(opts, :reduction, :sum)
     center = Keyword.get(opts, :center, nil)
 
-    tensor = case target do
-      :logprobs -> logprobs
-      :probs -> Nx.exp(logprobs)
-      {:field, key} -> extract_field(data, key)
-    end
+    tensor =
+      case target do
+        :logprobs -> logprobs
+        :probs -> Nx.exp(logprobs)
+        {:field, key} -> fetch_field!(data, key)
+      end
 
-    # Optionally center around a reference value
-    centered = case center do
-      nil -> tensor
-      :mean -> Nx.subtract(tensor, Nx.mean(tensor))
-      value when is_number(value) -> Nx.subtract(tensor, value)
-    end
+    l2_value = NxPenalties.Penalties.l2(tensor, reduction: reduction, center: center)
 
-    squared = Nx.power(centered, 2)
-    l2_value = Nx.sum(squared)
+    squared = Nx.pow(tensor, 2)
 
     {l2_value, %{
-      "l2_raw" => Nx.to_number(l2_value),
+      "l2_raw" => Nx.to_number(Nx.sum(squared)),
       "l2_mean" => Nx.to_number(Nx.mean(squared)),
       "l2_max" => Nx.to_number(Nx.reduce_max(squared))
     }}
   end
-
-  @impl true
-  def name, do: "l2_weight_decay"
 end
 ```
 
@@ -63,9 +64,10 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `:target` | atom \| tuple | `:logprobs` | What to regularize |
-| `:center` | nil \| :mean \| number | `nil` | Center before squaring |
-| `:reduce` | `:sum` \| `:mean` | `:sum` | Reduction method |
+| `:target` | atom \| tuple | `:logprobs` | What to regularize (Tinkex adapter) |
+| `:center` | nil \| :mean \| number | `nil` | Center before squaring (Tinkex adapter + NxPenalties) |
+| `:reduction` | `:sum` \| `:mean` | `:sum` | Reduction method (both) |
+| `:lambda` | number | `1.0` | Scaling inside the NxPenalties primitive (optional) |
 
 ## Consequences
 

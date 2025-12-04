@@ -20,171 +20,26 @@ Since Tinker doesn't expose LoRA weights directly, we apply orthogonality constr
 
 ## Decision
 
-Implement `Tinkex.Regularizer.Orthogonality` for encouraging diverse, uncorrelated outputs.
+Implement orthogonality via the tensor primitive `NxPenalties.Constraints.orthogonality/2`, with a Tinkex adapter to fit the data/logprobs regularizer contract.
 
 ### Interface
 
 ```elixir
-defmodule Tinkex.Regularizer.Orthogonality do
+# NxPenalties primitive (tensor-only)
+penalty = NxPenalties.Constraints.orthogonality(logprobs,
+  mode: :soft,      # or :hard/:spectral
+  axis: :sequence,  # or :vocabulary/:rows
+  normalize: true
+)
+
+# Tinkex adapter (data-aware signature)
+defmodule Tinkex.Regularizers.Orthogonality do
   @behaviour Tinkex.Regularizer
-
-  @moduledoc """
-  Orthogonality regularizer for encouraging diverse representations.
-
-  Penalizes correlation between different dimensions/positions in the output.
-
-  ## Modes
-
-  - `:soft` - penalize off-diagonal elements of correlation matrix
-  - `:hard` - penalize deviation from identity matrix
-  - `:spectral` - penalize deviation from uniform singular values
-
-  ## Application to Logprobs
-
-  For logprob outputs of shape [batch, seq, vocab]:
-  - Computes correlation across vocabulary dimension
-  - Encourages different sequence positions to have uncorrelated predictions
-
-  ## Example
-
-      %RegularizerSpec{
-        fn: &Orthogonality.compute/3,
-        weight: 0.01,
-        name: "orthogonality",
-        opts: [mode: :soft]
-      }
-  """
 
   @impl true
   def compute(_data, logprobs, opts \\ []) do
-    mode = Keyword.get(opts, :mode, :soft)
-    axis = Keyword.get(opts, :axis, :sequence)
-
-    # Reshape for correlation computation
-    matrix = prepare_matrix(logprobs, axis)
-
-    case mode do
-      :soft -> soft_orthogonality(matrix)
-      :hard -> hard_orthogonality(matrix)
-      :spectral -> spectral_orthogonality(matrix)
-    end
-  end
-
-  @impl true
-  def name, do: "orthogonality"
-
-  # Prepare matrix for orthogonality computation
-  defp prepare_matrix(logprobs, axis) do
-    case axis do
-      :sequence ->
-        # [batch, seq, vocab] -> [batch*vocab, seq] or [seq, vocab]
-        # We want to measure if different sequence positions are orthogonal
-        case Nx.shape(logprobs) do
-          {batch, seq, vocab} ->
-            # Reshape to [seq, batch*vocab] - each row is a sequence position
-            logprobs
-            |> Nx.transpose(axes: [1, 0, 2])  # [seq, batch, vocab]
-            |> Nx.reshape({seq, batch * vocab})
-
-          {seq, vocab} ->
-            logprobs  # Already [seq, vocab]
-        end
-
-      :vocabulary ->
-        # Measure if vocabulary dimensions are orthogonal
-        case Nx.shape(logprobs) do
-          {batch, seq, vocab} ->
-            logprobs
-            |> Nx.reshape({batch * seq, vocab})
-            |> Nx.transpose()  # [vocab, batch*seq]
-
-          {seq, vocab} ->
-            Nx.transpose(logprobs)  # [vocab, seq]
-        end
-    end
-  end
-
-  # Soft orthogonality: minimize off-diagonal correlations
-  defp soft_orthogonality(matrix) do
-    # Normalize rows
-    norms = Nx.sqrt(Nx.sum(Nx.power(matrix, 2), axes: [1], keep_axes: true))
-    norms_safe = Nx.max(norms, 1.0e-8)
-    normalized = Nx.divide(matrix, norms_safe)
-
-    # Compute correlation matrix: M @ M^T
-    correlation = Nx.dot(normalized, Nx.transpose(normalized))
-
-    # Get dimensions
-    n = Nx.axis_size(correlation, 0)
-
-    # Create identity matrix
-    identity = Nx.eye(n, type: Nx.type(correlation))
-
-    # Off-diagonal elements: correlation - identity
-    off_diagonal = Nx.subtract(correlation, identity)
-
-    # Frobenius norm of off-diagonal
-    penalty = Nx.sum(Nx.power(off_diagonal, 2))
-
-    # Normalize by n² - n (number of off-diagonal elements)
-    normalized_penalty = Nx.divide(penalty, n * n - n)
-
-    {normalized_penalty, %{
-      "off_diagonal_norm" => Nx.to_number(penalty),
-      "off_diagonal_mean" => Nx.to_number(normalized_penalty),
-      "max_correlation" => Nx.to_number(Nx.reduce_max(Nx.abs(off_diagonal)))
-    }}
-  end
-
-  # Hard orthogonality: penalize deviation from I
-  defp hard_orthogonality(matrix) do
-    normalized = normalize_rows(matrix)
-
-    # M @ M^T should equal I
-    gram = Nx.dot(normalized, Nx.transpose(normalized))
-    n = Nx.axis_size(gram, 0)
-    identity = Nx.eye(n, type: Nx.type(gram))
-
-    # ||M @ M^T - I||²_F
-    deviation = Nx.subtract(gram, identity)
-    penalty = Nx.sum(Nx.power(deviation, 2))
-
-    {penalty, %{
-      "gram_deviation" => Nx.to_number(penalty),
-      "diagonal_mean" => Nx.to_number(Nx.mean(Nx.take_diagonal(gram)))
-    }}
-  end
-
-  # Spectral orthogonality: encourage uniform singular values
-  defp spectral_orthogonality(matrix) do
-    # Compute singular values via SVD
-    # Note: Nx.LinAlg.svd may not be available on all backends
-
-    # Fallback: use eigenvalues of M^T @ M
-    gram = Nx.dot(Nx.transpose(matrix), matrix)
-
-    # Approximate singular values via power iteration or eigendecomposition
-    # For now, use trace-based approximation
-    trace = Nx.sum(Nx.take_diagonal(gram))
-    frobenius_sq = Nx.sum(Nx.power(matrix, 2))
-
-    # For orthogonal matrix: trace = frobenius = n
-    n = Nx.axis_size(matrix, 0) |> Nx.tensor(type: Nx.type(trace))
-
-    # Penalty: deviation from expected relationship
-    trace_penalty = Nx.power(Nx.subtract(trace, n), 2)
-
-    {trace_penalty, %{
-      "trace" => Nx.to_number(trace),
-      "frobenius_squared" => Nx.to_number(frobenius_sq),
-      "expected_trace" => Nx.to_number(n)
-    }}
-  end
-
-  defp normalize_rows(matrix) do
-    norms = Nx.sqrt(Nx.sum(Nx.power(matrix, 2), axes: [1], keep_axes: true))
-    norms_safe = Nx.max(norms, 1.0e-8)
-    Nx.divide(matrix, norms_safe)
+    penalty = NxPenalties.Constraints.orthogonality(logprobs, opts)
+    {penalty, %{"orthogonality" => Nx.to_number(penalty)}}
   end
 end
 ```
@@ -195,6 +50,7 @@ end
 |--------|------|---------|-------------|
 | `:mode` | atom | `:soft` | Orthogonality measure (`:soft`, `:hard`, `:spectral`) |
 | `:axis` | atom | `:sequence` | Which axis to orthogonalize (`:sequence`, `:vocabulary`) |
+| `:normalize` | boolean | `true` | Normalize rows before Gram computation |
 
 ## Consequences
 

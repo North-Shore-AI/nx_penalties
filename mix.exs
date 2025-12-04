@@ -1,7 +1,7 @@
 defmodule NxPenalties.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.1.0"
   @source_url "https://github.com/North-Shore-AI/nx_penalties"
   @description "Composable regularization penalties and loss functions for the Nx ecosystem"
 
@@ -88,6 +88,7 @@ defmodule NxPenalties.MixProject do
   defp docs do
     [
       main: "readme",
+      assets: %{"assets" => "assets"},
       logo: "assets/nx_penalties.svg",
       extras: [
         "README.md",

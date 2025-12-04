@@ -12,62 +12,50 @@ Elastic Net combines L1 and L2 regularization, balancing sparsity induction (L1)
 - Some sparsity is desired but not extreme
 - Training stability is important (L2 smooths L1's sharp corners)
 
-For Tinkex, Elastic Net provides a single regularizer that captures both behaviors without requiring users to manually compose L1 + L2 specs.
+Elastic Net provides a single regularizer that captures both behaviors without requiring users to manually compose L1 + L2 specs. The tensor primitive lives in `NxPenalties.Penalties.elastic_net/2`; Tinkex supplies the data-aware adapter.
 
 ## Decision
 
-Implement `Tinkex.Regularizer.ElasticNet` with configurable L1/L2 ratio.
+Implement `NxPenalties.Penalties.elastic_net/2` as the numeric primitive with configurable L1/L2 ratio, and a Tinkex adapter that resolves the target tensor.
 
 ### Interface
 
 ```elixir
-defmodule Tinkex.Regularizer.ElasticNet do
+# Tensor primitive (NxPenalties)
+elastic_value = NxPenalties.Penalties.elastic_net(tensor,
+  l1_ratio: 0.5, # 1.0 = L1, 0.0 = L2
+  lambda: 1.0,
+  reduction: :sum # or :mean
+)
+
+# Tinkex adapter (data-aware)
+defmodule Tinkex.Regularizers.ElasticNet do
   @behaviour Tinkex.Regularizer
-
-  @doc """
-  Elastic Net regularizer combining L1 and L2 penalties.
-
-  Loss = alpha * L1 + (1 - alpha) * L2
-
-  Where alpha=1 is pure L1, alpha=0 is pure L2.
-  """
 
   @impl true
   def compute(data, logprobs, opts \\ []) do
-    alpha = Keyword.get(opts, :alpha, 0.5)
     target = Keyword.get(opts, :target, :logprobs)
+    l1_ratio = Keyword.get(opts, :l1_ratio, 0.5)
+    reduction = Keyword.get(opts, :reduction, :sum)
 
-    tensor = case target do
-      :logprobs -> logprobs
-      :probs -> Nx.exp(logprobs)
-      {:field, key} -> extract_field(data, key)
-    end
+    tensor =
+      case target do
+        :logprobs -> logprobs
+        :probs -> Nx.exp(logprobs)
+        {:field, key} -> fetch_field!(data, key)
+      end
 
-    # L1 component
-    l1_value = Nx.sum(Nx.abs(tensor))
-
-    # L2 component
-    l2_value = Nx.sum(Nx.power(tensor, 2))
-
-    # Combined: alpha * L1 + (1 - alpha) * L2
-    alpha_tensor = Nx.tensor(alpha, type: Nx.type(tensor))
-    one_minus_alpha = Nx.tensor(1.0 - alpha, type: Nx.type(tensor))
-
-    elastic_value = Nx.add(
-      Nx.multiply(alpha_tensor, l1_value),
-      Nx.multiply(one_minus_alpha, l2_value)
-    )
+    elastic_value =
+      NxPenalties.Penalties.elastic_net(tensor,
+        l1_ratio: l1_ratio,
+        reduction: reduction
+      )
 
     {elastic_value, %{
       "elastic_net" => Nx.to_number(elastic_value),
-      "l1_component" => Nx.to_number(l1_value),
-      "l2_component" => Nx.to_number(l2_value),
-      "alpha" => alpha
+      "l1_ratio" => l1_ratio
     }}
   end
-
-  @impl true
-  def name, do: "elastic_net"
 end
 ```
 
@@ -75,9 +63,10 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `:alpha` | float | `0.5` | L1/L2 mixing ratio (1.0 = pure L1, 0.0 = pure L2) |
-| `:target` | atom \| tuple | `:logprobs` | What to regularize |
-| `:reduce` | `:sum` \| `:mean` | `:sum` | Reduction method |
+| `:l1_ratio` | float | `0.5` | L1/L2 mixing ratio (1.0 = pure L1, 0.0 = pure L2) |
+| `:target` | atom \| tuple | `:logprobs` | What to regularize (Tinkex adapter) |
+| `:reduction` | `:sum` \| `:mean` | `:sum` | Reduction method |
+| `:lambda` | number | `1.0` | Scaling inside the NxPenalties primitive (optional) |
 
 ## Consequences
 

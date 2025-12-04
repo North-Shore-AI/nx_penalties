@@ -117,6 +117,96 @@ defmodule NxPenalties.ConstraintsTest do
     end
   end
 
+  describe "orthogonality/2 with :spectral mode" do
+    test "identity matrix has zero spectral penalty" do
+      tensor = Nx.eye(4)
+      result = Constraints.orthogonality(tensor, mode: :spectral)
+      assert_close(result, Nx.tensor(0.0), atol: 1.0e-4)
+    end
+
+    test "orthonormal rows have low spectral penalty" do
+      # Create orthonormal matrix via QR decomposition approximation
+      # For simplicity, use identity
+      tensor = Nx.eye(3)
+      result = Constraints.orthogonality(tensor, mode: :spectral)
+      assert_close(result, Nx.tensor(0.0), atol: 1.0e-4)
+    end
+
+    test "correlated rows have positive spectral penalty" do
+      # All rows identical = highly correlated
+      row = Nx.tensor([1.0, 0.0, 0.0, 0.0])
+      tensor = Nx.stack([row, row, row])
+      result = Constraints.orthogonality(tensor, mode: :spectral)
+      assert Nx.to_number(result) > 0.0
+    end
+
+    test "spectral mode respects normalize option" do
+      tensor =
+        Nx.tensor([
+          [2.0, 0.0, 0.0],
+          [0.0, 3.0, 0.0],
+          [0.0, 0.0, 4.0]
+        ])
+
+      # With normalization, should be close to orthonormal
+      normalized_result = Constraints.orthogonality(tensor, mode: :spectral, normalize: true)
+
+      # Without normalization, different magnitudes affect result
+      unnormalized_result = Constraints.orthogonality(tensor, mode: :spectral, normalize: false)
+
+      # Normalized should have lower penalty (closer to orthonormal)
+      assert Nx.to_number(normalized_result) < Nx.to_number(unnormalized_result)
+    end
+
+    test "spectral penalty increases with correlation" do
+      # Identity = orthogonal
+      identity = Nx.eye(4)
+      identity_penalty = Constraints.orthogonality(identity, mode: :spectral)
+
+      # Slightly correlated
+      slight =
+        Nx.tensor([
+          [1.0, 0.1, 0.0, 0.0],
+          [0.1, 1.0, 0.0, 0.0],
+          [0.0, 0.0, 1.0, 0.0],
+          [0.0, 0.0, 0.0, 1.0]
+        ])
+
+      slight_penalty = Constraints.orthogonality(slight, mode: :spectral, normalize: true)
+
+      # Highly correlated
+      high =
+        Nx.tensor([
+          [1.0, 0.9, 0.0, 0.0],
+          [0.9, 1.0, 0.0, 0.0],
+          [0.0, 0.0, 1.0, 0.0],
+          [0.0, 0.0, 0.0, 1.0]
+        ])
+
+      high_penalty = Constraints.orthogonality(high, mode: :spectral, normalize: true)
+
+      # Penalties should increase with correlation
+      assert Nx.to_number(identity_penalty) < Nx.to_number(slight_penalty)
+      assert Nx.to_number(slight_penalty) < Nx.to_number(high_penalty)
+    end
+
+    test "spectral gradient flows" do
+      grad_fn = Nx.Defn.grad(fn x -> Constraints.orthogonality(x, mode: :spectral) end)
+      tensor = random_tensor({4, 8})
+      grads = grad_fn.(tensor)
+      assert Nx.shape(grads) == {4, 8}
+      assert_finite(grads)
+    end
+
+    test "spectral mode handles 3D tensors" do
+      tensor = random_tensor({2, 4, 8})
+      result = Constraints.orthogonality(tensor, mode: :spectral)
+      assert Nx.shape(result) == {}
+      # Scalar output
+      assert_finite(result)
+    end
+  end
+
   describe "consistency/3" do
     test "identical outputs have zero penalty with MSE" do
       output = random_tensor({4, 8})
@@ -243,6 +333,77 @@ defmodule NxPenalties.ConstraintsTest do
     end
   end
 
+  describe "consistency/3 with :kl metric" do
+    test "identical log-probability distributions have zero KL consistency" do
+      logprobs = random_logprobs({2, 8})
+      result = Constraints.consistency(logprobs, logprobs, metric: :kl)
+      assert_close(result, Nx.tensor(0.0), atol: 1.0e-5)
+    end
+
+    test "KL consistency is symmetric" do
+      p = random_logprobs({2, 8})
+      q = random_logprobs({2, 8})
+
+      kl_pq = Constraints.consistency(p, q, metric: :kl)
+      kl_qp = Constraints.consistency(q, p, metric: :kl)
+
+      # Should be equal because we use symmetric KL
+      assert_close(kl_pq, kl_qp, atol: 1.0e-5)
+    end
+
+    test "KL consistency is non-negative" do
+      for _ <- 1..10 do
+        p = random_logprobs({4, 16})
+        q = random_logprobs({4, 16})
+        result = Constraints.consistency(p, q, metric: :kl)
+        assert Nx.to_number(result) >= -1.0e-6
+      end
+    end
+
+    test "KL consistency with reduction: :sum" do
+      p = random_logprobs({2, 8})
+      q = random_logprobs({2, 8})
+
+      none_result = Constraints.consistency(p, q, metric: :kl, reduction: :none)
+      sum_result = Constraints.consistency(p, q, metric: :kl, reduction: :sum)
+
+      assert_close(sum_result, Nx.sum(none_result))
+    end
+
+    test "KL consistency with reduction: :none preserves batch dimension" do
+      p = random_logprobs({4, 16})
+      q = random_logprobs({4, 16})
+      result = Constraints.consistency(p, q, metric: :kl, reduction: :none)
+      assert Nx.shape(result) == {4}
+    end
+
+    test "KL consistency gradient flows" do
+      grad_fn =
+        Nx.Defn.grad(fn {p, q} ->
+          Constraints.consistency(p, q, metric: :kl)
+        end)
+
+      p = random_logprobs({2, 8})
+      q = random_logprobs({2, 8})
+      {grad_p, grad_q} = grad_fn.({p, q})
+
+      assert Nx.shape(grad_p) == {2, 8}
+      assert Nx.shape(grad_q) == {2, 8}
+      assert_finite(grad_p)
+      assert_finite(grad_q)
+    end
+
+    test "KL consistency handles peaked distributions" do
+      # Very peaked distribution (almost one-hot)
+      peaked = Nx.tensor([[0.0, -50.0, -50.0, -50.0]])
+      uniform = Nx.tensor([[-1.386, -1.386, -1.386, -1.386]])
+
+      result = Constraints.consistency(peaked, uniform, metric: :kl)
+      assert Nx.to_number(result) > 0.0
+      assert_finite(result)
+    end
+  end
+
   describe "edge cases" do
     test "orthogonality with single row" do
       tensor = Nx.tensor([[1.0, 2.0, 3.0]])
@@ -277,6 +438,98 @@ defmodule NxPenalties.ConstraintsTest do
       o2 = Nx.tensor([0.0, 1.0e-8])
       result = Constraints.consistency(o1, o2, metric: :cosine)
       assert_finite(result)
+    end
+  end
+
+  describe "orthogonality/2 with :axis option" do
+    test "axis: :rows is default behavior" do
+      tensor = random_tensor({4, 8})
+      default = Constraints.orthogonality(tensor)
+      explicit = Constraints.orthogonality(tensor, axis: :rows)
+      assert_close(default, explicit)
+    end
+
+    test "axis: :sequence with 3D tensor" do
+      # [batch=2, seq=4, vocab=8]
+      tensor = random_tensor({2, 4, 8})
+      result = Constraints.orthogonality(tensor, axis: :sequence)
+
+      # Should compute correlation across 4 sequence positions
+      # Each position represented by batch*vocab = 16 features
+      assert Nx.shape(result) == {}
+      assert_finite(result)
+    end
+
+    test "axis: :vocabulary with 3D tensor" do
+      # [batch=2, seq=4, vocab=8]
+      tensor = random_tensor({2, 4, 8})
+      result = Constraints.orthogonality(tensor, axis: :vocabulary)
+
+      # Should compute correlation across 8 vocabulary dimensions
+      # Each vocab dim represented by batch*seq = 8 samples
+      assert Nx.shape(result) == {}
+      assert_finite(result)
+    end
+
+    test "axis: :sequence with 2D tensor" do
+      tensor = random_tensor({4, 8})
+      result = Constraints.orthogonality(tensor, axis: :sequence)
+      assert Nx.shape(result) == {}
+      assert_finite(result)
+    end
+
+    test "axis: :vocabulary with 2D tensor" do
+      tensor = random_tensor({4, 8})
+      result = Constraints.orthogonality(tensor, axis: :vocabulary)
+      assert Nx.shape(result) == {}
+      assert_finite(result)
+    end
+
+    test "different axes give different penalties" do
+      tensor = random_tensor({2, 4, 8})
+
+      rows_penalty = Constraints.orthogonality(tensor, axis: :rows)
+      seq_penalty = Constraints.orthogonality(tensor, axis: :sequence)
+      vocab_penalty = Constraints.orthogonality(tensor, axis: :vocabulary)
+
+      # All should be valid scalars but likely different values
+      assert_finite(rows_penalty)
+      assert_finite(seq_penalty)
+      assert_finite(vocab_penalty)
+    end
+
+    test "axis works with all modes" do
+      tensor = random_tensor({2, 4, 8})
+
+      for mode <- [:soft, :hard, :spectral] do
+        for axis <- [:rows, :sequence, :vocabulary] do
+          result = Constraints.orthogonality(tensor, mode: mode, axis: axis)
+          assert Nx.shape(result) == {}, "Failed for mode=#{mode}, axis=#{axis}"
+          assert_finite(result)
+        end
+      end
+    end
+
+    test "axis gradient flows" do
+      for axis <- [:rows, :sequence, :vocabulary] do
+        grad_fn =
+          Nx.Defn.grad(fn x ->
+            Constraints.orthogonality(x, axis: axis)
+          end)
+
+        tensor = random_tensor({2, 4, 8})
+        grads = grad_fn.(tensor)
+        assert Nx.shape(grads) == {2, 4, 8}, "Gradient shape wrong for axis=#{axis}"
+        assert_finite(grads)
+      end
+    end
+
+    test "orthogonal sequence positions have low penalty" do
+      # Create tensor where each sequence position is orthogonal
+      # [seq=3, vocab=3] with orthonormal rows
+      tensor = Nx.eye(3)
+      result = Constraints.orthogonality(tensor, axis: :sequence)
+      assert_close(result, Nx.tensor(0.0), atol: 1.0e-4)
     end
   end
 end

@@ -4,6 +4,9 @@
 
 The Pipeline module provides composition infrastructure for combining multiple penalties into a single training objective. This is the "glue" that makes individual penalty functions useful in practice.
 
+> **Scope:** NxPenalties pipelines are **single-tensor**. Any data-aware regularization
+> (e.g., resolving reference logprobs from `loss_fn_inputs`) is handled by Tinkex adapters.
+
 ## Design Goals
 
 1. **Declarative** - Define objectives as data, not imperative code
@@ -60,16 +63,14 @@ defmodule NxPenalties.Pipeline do
 
   defstruct [
     :entries,      # List of {name, fn, weight, opts, enabled}
-    :reduction,    # How to combine: :sum | :mean
-    :scale        # Global scale factor
+    :name          # Optional identifier for logging/telemetry
   ]
 
   @type entry :: {atom(), function(), number() | Nx.Tensor.t(), keyword(), boolean()}
 
   @type t :: %__MODULE__{
     entries: [entry()],
-    reduction: :sum | :mean,
-    scale: number() | Nx.Tensor.t()
+    name: String.t() | nil
   }
 end
 ```
@@ -82,16 +83,12 @@ Create a new empty pipeline.
 
 ## Options
 
-  * `:reduction` - How to combine penalties. Default: `:sum`
-  * `:scale` - Global scale factor. Default: `1.0`
+  * `:name` - Optional identifier for logging/telemetry
 """
 @spec new(keyword()) :: t()
 def new(opts \\ []) do
-  %__MODULE__{
-    entries: [],
-    reduction: Keyword.get(opts, :reduction, :sum),
-    scale: Keyword.get(opts, :scale, 1.0)
-  }
+  name = Keyword.get(opts, :name, nil)
+  %__MODULE__{entries: [], name: name}
 end
 
 @doc """
@@ -232,7 +229,6 @@ def compute(%__MODULE__{} = pipeline, tensor, opts) do
     results
     |> Enum.map(fn {_, _, weighted} -> weighted end)
     |> Enum.reduce(Nx.tensor(0.0), &Nx.add/2)
-    |> Nx.multiply(pipeline.scale)
 
   base_metrics = Map.put(base_metrics, "total", Nx.to_number(total))
 
@@ -262,160 +258,9 @@ defp apply_penalty(penalty_fn, tensor, opts) when is_function(penalty_fn, 2) do
 end
 ```
 
-### Defn-Compatible Computation
-
-For use inside JIT-compiled training loops:
-
-```elixir
-defmodule NxPenalties.Pipeline.Defn do
-  @moduledoc """
-  Defn-compatible pipeline computation for JIT compilation.
-
-  Since pipelines are built dynamically at runtime, we compile them
-  to a single defn function for execution efficiency.
-  """
-
-  import Nx.Defn
-
-  @doc """
-  Compile a pipeline to a defn function.
-
-  Returns a function `(tensor, opts) -> {total, individual_values}`.
-
-  ## Example
-
-      compiled_fn = NxPenalties.Pipeline.Defn.compile(pipeline)
-      {total, values} = compiled_fn.(tensor, [])
-  """
-  def compile(%NxPenalties.Pipeline{} = pipeline) do
-    # Extract penalty functions and weights
-    entries = Enum.filter(pipeline.entries, fn {_, _, _, _, enabled} -> enabled end)
-
-    fn tensor, opts ->
-      compute_compiled(tensor, entries, pipeline.scale, opts)
-    end
-  end
-
-  defnp compute_compiled(tensor, entries, scale, opts) do
-    # This would be generated code based on pipeline structure
-    # For now, show the pattern:
-
-    # Example with 2 penalties:
-    # p1 = penalty_fn_1.(tensor, opts)
-    # p2 = penalty_fn_2.(tensor, opts)
-    # total = w1 * p1 + w2 * p2
-
-    # Actual implementation would use macro to generate this
-    Nx.tensor(0.0)
-  end
-end
-```
-
-### Macro-Based Compilation (Advanced)
-
-```elixir
-defmodule NxPenalties.Pipeline.Compiler do
-  @moduledoc """
-  Compile pipelines to optimized defn code at compile time.
-
-  ## Usage
-
-      defmodule MyTraining do
-        use NxPenalties.Pipeline.Compiler
-
-        @pipeline NxPenalties.Pipeline.new()
-          |> NxPenalties.Pipeline.add(:l1, &NxPenalties.Penalties.l1/2, weight: 0.01)
-          |> NxPenalties.Pipeline.add(:l2, &NxPenalties.Penalties.l2/2, weight: 0.001)
-
-        # Generates: defn compute_penalties(tensor, opts)
-        compile_pipeline(@pipeline)
-      end
-  """
-
-  defmacro compile_pipeline(pipeline) do
-    quote do
-      import Nx.Defn
-
-      defn compute_penalties(tensor, opts \\ []) do
-        # Generated code based on pipeline structure
-        unquote(generate_penalty_code(pipeline))
-      end
-    end
-  end
-
-  defp generate_penalty_code(pipeline) do
-    # At compile time, inspect pipeline and generate AST
-    # This is advanced metaprogramming territory
-    quote do
-      Nx.tensor(0.0)  # Placeholder
-    end
-  end
-end
-```
-
----
-
 ## Multi-Input Pipelines
 
-Some penalties need multiple inputs (e.g., KL divergence needs P and Q).
-
-```elixir
-defmodule NxPenalties.Pipeline.Multi do
-  @moduledoc """
-  Pipelines with multiple named inputs.
-
-  ## Example
-
-      pipeline =
-        NxPenalties.Pipeline.Multi.new()
-        |> NxPenalties.Pipeline.Multi.add(:kl,
-             fn inputs, _opts ->
-               NxPenalties.Divergences.kl_divergence(
-                 inputs.model_logprobs,
-                 inputs.reference_logprobs
-               )
-             end,
-             weight: 0.1)
-
-      inputs = %{
-        model_logprobs: model_output,
-        reference_logprobs: base_model_output
-      }
-
-      {total, metrics} = NxPenalties.Pipeline.Multi.compute(pipeline, inputs)
-  """
-
-  defstruct [:entries, :reduction, :scale]
-
-  @type t :: %__MODULE__{
-    entries: [{atom(), function(), term(), keyword(), boolean()}],
-    reduction: :sum | :mean,
-    scale: term()
-  }
-
-  def new(opts \\ []), do: # similar to Pipeline.new
-
-  def add(pipeline, name, penalty_fn, opts \\ []), do: # similar
-
-  @doc """
-  Compute with named inputs map.
-  """
-  @spec compute(t(), map(), keyword()) :: {Nx.Tensor.t(), map()}
-  def compute(%__MODULE__{} = pipeline, inputs, extra_args \\ []) when is_map(inputs) do
-    results =
-      pipeline.entries
-      |> Enum.filter(fn {_, _, _, _, enabled} -> enabled end)
-      |> Enum.map(fn {name, penalty_fn, weight, opts, _enabled} ->
-        raw_value = penalty_fn.(inputs, Keyword.merge(opts, extra_args))
-        weighted_value = Nx.multiply(raw_value, weight)
-        {name, raw_value, weighted_value}
-      end)
-
-    # Same aggregation as Pipeline.compute
-    # ...
-  end
-end
-```
+NxPenalties’ built-in pipeline is single-tensor. Multi-input/data-aware use cases (e.g., resolving references, paired tensors) are handled in Tinkex. A future `Pipeline.Multi` in NxPenalties remains a possible extension.
 
 ---
 
@@ -502,31 +347,8 @@ end
 
 ```elixir
 def build_ppo_pipeline do
-  NxPenalties.Pipeline.Multi.new()
-  |> NxPenalties.Pipeline.Multi.add(:policy_loss,
-       fn inputs, _opts ->
-         # Clipped surrogate objective
-         ratio = Nx.exp(Nx.subtract(inputs.new_log_probs, inputs.old_log_probs))
-         clipped = Nx.clip(ratio, 1.0 - 0.2, 1.0 + 0.2)
-         Nx.negate(Nx.mean(Nx.min(
-           Nx.multiply(ratio, inputs.advantages),
-           Nx.multiply(clipped, inputs.advantages)
-         )))
-       end,
-       weight: 1.0)
-  |> NxPenalties.Pipeline.Multi.add(:entropy_bonus,
-       fn inputs, _opts ->
-         NxPenalties.Divergences.entropy(inputs.new_log_probs, mode: :bonus)
-       end,
-       weight: 0.01)
-  |> NxPenalties.Pipeline.Multi.add(:kl_penalty,
-       fn inputs, _opts ->
-         NxPenalties.Divergences.kl_divergence(
-           inputs.new_log_probs,
-           inputs.old_log_probs
-         )
-       end,
-       weight: 0.1)
+  # For multi-input needs, use a Tinkex data-aware pipeline.
+  :not_implemented
 end
 ```
 

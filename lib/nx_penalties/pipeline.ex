@@ -144,7 +144,7 @@ defmodule NxPenalties.Pipeline do
     * `tensor` - Input tensor to penalize
     * `opts` - Options:
       * `:extra_args` - Additional args merged into each penalty's opts
-      * `:track_grad_norms` - Compute gradient norms (v0.2, default: `false`)
+      * `:track_grad_norms` - Compute gradient norms (default: `false`)
 
   ## Returns
 

@@ -39,15 +39,18 @@ defmodule NxPenalties do
   | `kl_divergence/3` | KL(P || Q) for distributions |
   | `js_divergence/3` | Symmetric Jensen-Shannon |
   | `entropy/2` | Shannon entropy (bonus/penalty mode) |
+  | `gradient_penalty/3` | Lipschitz smoothness (expensive) |
+  | `output_magnitude_penalty/2` | Cheaper gradient penalty proxy |
+  | `interpolated_gradient_penalty/4` | WGAN-GP style penalty |
 
-  ## v0.2 Preview
+  ## Constraints & Tracking
 
   - `orthogonality/2` - Decorrelation penalty
   - `consistency/3` - Paired output consistency
-  - Gradient norm tracking in pipelines
+  - Gradient norm tracking in pipelines (`track_grad_norms: true`)
   """
 
-  alias NxPenalties.{Divergences, Penalties, Pipeline}
+  alias NxPenalties.{Divergences, GradientPenalty, Penalties, Pipeline}
 
   # ============================================================================
   # Penalty Functions (Validated Wrappers)
@@ -100,6 +103,37 @@ defmodule NxPenalties do
   """
   @spec entropy(Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
   defdelegate entropy(logprobs, opts \\ []), to: Divergences
+
+  @doc """
+  Gradient penalty for Lipschitz smoothness.
+
+  See `NxPenalties.GradientPenalty.gradient_penalty/3` for full documentation.
+  """
+  @spec gradient_penalty((Nx.Tensor.t() -> Nx.Tensor.t()), Nx.Tensor.t(), keyword()) ::
+          Nx.Tensor.t()
+  defdelegate gradient_penalty(loss_fn, tensor, opts \\ []), to: GradientPenalty
+
+  @doc """
+  Output magnitude penalty (cheaper proxy for gradient penalty).
+
+  See `NxPenalties.GradientPenalty.output_magnitude_penalty/2` for full documentation.
+  """
+  @spec output_magnitude_penalty(Nx.Tensor.t(), keyword()) :: Nx.Tensor.t()
+  defdelegate output_magnitude_penalty(output, opts \\ []), to: GradientPenalty
+
+  @doc """
+  Interpolated gradient penalty (WGAN-GP style).
+
+  See `NxPenalties.GradientPenalty.interpolated_gradient_penalty/4` for full documentation.
+  """
+  @spec interpolated_gradient_penalty(
+          (Nx.Tensor.t() -> Nx.Tensor.t()),
+          Nx.Tensor.t(),
+          Nx.Tensor.t(),
+          keyword()
+        ) :: Nx.Tensor.t()
+  defdelegate interpolated_gradient_penalty(loss_fn, tensor, reference, opts \\ []),
+    to: GradientPenalty
 
   # ============================================================================
   # Pipeline API

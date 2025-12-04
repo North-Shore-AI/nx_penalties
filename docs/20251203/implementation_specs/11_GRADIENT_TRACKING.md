@@ -8,26 +8,26 @@ Gradient tracking provides visibility into which regularizers dominate the train
 
 **See also**: [ADR-009: Gradient Tracking](./regularizer_adrs/adrs/ADR-009_gradient_tracking.md)
 
-## Module: NxPenalties.GradientTracker
+## Module: Tinkex.Regularizer.GradientTracker
 
 ### File Location
 ```
-lib/nx_penalties/gradient_tracker.ex
+tinkex/regularizer/gradient_tracker.ex
 ```
 
 ### Module Structure
 
 ```elixir
-defmodule NxPenalties.GradientTracker do
+defmodule Tinkex.Regularizer.GradientTracker do
   @moduledoc """
   Computes gradient norms for regularizers using Nx automatic differentiation.
 
   ## Purpose
 
   When training with multiple regularizers, it's crucial to understand which
-  penalties contribute most to the gradient signal. This module provides:
+  regularizers contribute most to the gradient signal. This module provides:
 
-  - Per-penalty gradient norms
+  - Per-regularizer gradient norms
   - Total composed gradient norm
   - Gradient ratio analysis
 
@@ -35,10 +35,10 @@ defmodule NxPenalties.GradientTracker do
 
   Enable in pipeline computation:
 
-      {total, metrics} = NxPenalties.compute(pipeline, tensor, track_grad_norms: true)
+      {total, metrics} = Tinkex.Regularizer.Pipeline.compute(data, logprobs, base_loss_fn, regularizers: regularizers, track_grad_norms: true)
 
-      metrics["l1_grad_norm"]      # L2 norm of L1 penalty's gradient
-      metrics["total_grad_norm"]   # Combined gradient norm
+      output.regularizers["l1_grad_norm"]      # L2 norm of L1 regularizer's gradient
+      output.regularizers["total_grad_norm"]   # Combined gradient norm
 
   ## Performance Note
 
@@ -47,14 +47,14 @@ defmodule NxPenalties.GradientTracker do
 
   ## Important: What Are We Differentiating?
 
-  These functions compute ∂penalty/∂(pipeline_input), NOT ∂penalty/∂params.
+  These functions compute ∂regularizer/∂(pipeline_input), NOT ∂regularizer/∂params.
 
   The "pipeline input" is whatever tensor you pass to `Pipeline.compute/3`—
   typically model outputs, activations, or logprobs. This tells you how
-  sensitive each penalty is to changes in that tensor.
+  sensitive each regularizer is to changes in that tensor.
 
   True parameter-wise gradient tracking (∂loss/∂params) would require
-  hooking into the training step itself, which is outside NxPenalties' scope.
+  hooking into the training step itself, which is outside  Tinkex.Regularizer.Pipeline' scope.
   """
 
   require Logger
@@ -113,7 +113,7 @@ def compute_grad_norm(loss_fn, tensor) do
       Gradient computation failed: #{inspect(e)}
 
       This usually means the loss function contains non-differentiable operations.
-      Consider disabling gradient tracking or fixing the penalty function.
+      Consider disabling gradient tracking or fixing the regularizer function.
       """)
       nil
   end
@@ -136,11 +136,11 @@ end
 
 ```elixir
 @doc """
-Compute gradient norms for all penalties in a pipeline.
+Compute gradient norms for all regularizers in a pipeline.
 
 ## Parameters
 
-- `pipeline` - Pipeline struct with penalty entries
+- `pipeline` - Pipeline struct with regularizer entries
 - `tensor` - Input tensor to differentiate with respect to
 
 ## Returns
@@ -149,7 +149,7 @@ Map of `%{"name_grad_norm" => float, ...}`
 
 ## Examples
 
-    pipeline = NxPenalties.pipeline([
+    pipeline =  Tinkex.Regularizer.Pipeline.pipeline([
       {:l1, weight: 0.001},
       {:l2, weight: 0.01}
     ])
@@ -161,8 +161,8 @@ Map of `%{"name_grad_norm" => float, ...}`
 def pipeline_grad_norms(pipeline, tensor) do
   pipeline.entries
   |> Enum.filter(fn {_, _, _, _, enabled} -> enabled end)
-  |> Enum.flat_map(fn {name, penalty_fn, _weight, opts, _enabled} ->
-    loss_fn = fn t -> penalty_fn.(t, opts) end
+  |> Enum.flat_map(fn {name, regularizer_fn, _weight, opts, _enabled} ->
+    loss_fn = fn t -> regularizer_fn.(t, opts) end
     case compute_grad_norm(loss_fn, tensor) do
       nil ->
         # Include error indicator in metrics
@@ -187,7 +187,7 @@ Compute gradient norm for the total weighted pipeline loss.
 
 ## Formula
 
-    total = Σ(weight_i × penalty_i(tensor))
+    total = Σ(weight_i × regularizer_i(tensor))
     result = ||∇_tensor total||₂
 
 ## Parameters
@@ -208,8 +208,8 @@ def total_grad_norm(pipeline, tensor) do
   total_loss_fn = fn t ->
     pipeline.entries
     |> Enum.filter(fn {_, _, _, _, enabled} -> enabled end)
-    |> Enum.map(fn {_name, penalty_fn, weight, opts, _enabled} ->
-      Nx.multiply(penalty_fn.(t, opts), weight)
+    |> Enum.map(fn {_name, regularizer_fn, weight, opts, _enabled} ->
+      Nx.multiply(regularizer_fn.(t, opts), weight)
     end)
     |> Enum.reduce(Nx.tensor(0.0), &Nx.add/2)
   end
@@ -224,28 +224,28 @@ end
 
 ### API Relationship
 
-The top-level `NxPenalties.compute/3` delegates to `NxPenalties.Pipeline.compute/3`:
+The top-level ` Tinkex.Regularizer.Pipeline.compute/3` delegates to ` Tinkex.Regularizer.Pipeline.Pipeline.compute/3`:
 
 ```elixir
-# Top-level convenience API (in NxPenalties module)
-defmodule NxPenalties do
+# Top-level convenience API (in  Tinkex.Regularizer.Pipeline module)
+defmodule  Tinkex.Regularizer.Pipeline do
   @doc """
-  Compute pipeline penalties with optional gradient tracking.
+  Compute pipeline regularizers with optional gradient tracking.
 
-  Delegates to `NxPenalties.Pipeline.compute/3`.
+  Delegates to ` Tinkex.Regularizer.Pipeline.Pipeline.compute/3`.
 
   ## Options
 
     * `:track_grad_norms` - Compute gradient norms (default: `false`)
-    * `:extra_args` - Additional args merged into each penalty's opts
+    * `:extra_args` - Additional args merged into each regularizer's opts
 
   ## Examples
 
-      {total, metrics} = NxPenalties.compute(pipeline, tensor)
-      {total, metrics} = NxPenalties.compute(pipeline, tensor, track_grad_norms: true)
+      {total, metrics} =  Tinkex.Regularizer.Pipeline.compute(pipeline, tensor)
+      {total, metrics} = Tinkex.Regularizer.Pipeline.compute(data, logprobs, base_loss_fn, regularizers: regularizers, track_grad_norms: true)
   """
   def compute(pipeline, tensor, opts \\ []) do
-    NxPenalties.Pipeline.compute(pipeline, tensor, opts)
+     Tinkex.Regularizer.Pipeline.Pipeline.compute(pipeline, tensor, opts)
   end
 end
 ```
@@ -253,13 +253,13 @@ end
 ### Enhanced Pipeline.compute/3
 
 ```elixir
-defmodule NxPenalties.Pipeline do
+defmodule  Tinkex.Regularizer.Pipeline.Pipeline do
   def compute(%__MODULE__{} = pipeline, tensor, opts \\ []) do
     track_grad_norms = Keyword.get(opts, :track_grad_norms, false)
     extra_args = Keyword.get(opts, :extra_args, [])
 
-    # Compute penalties (existing logic from 04_PIPELINE.md)
-    {total, base_metrics} = compute_penalties(pipeline, tensor, extra_args)
+    # Compute regularizers (existing logic from 04_PIPELINE.md)
+    {total, base_metrics} = compute_regularizers(pipeline, tensor, extra_args)
 
     # Optionally add gradient metrics
     metrics = if track_grad_norms do
@@ -276,10 +276,10 @@ defmodule NxPenalties.Pipeline do
     {total, metrics}
   end
 
-  # Private: compute penalties without gradient tracking
-  defp compute_penalties(pipeline, tensor, extra_args) do
+  # Private: compute regularizers without gradient tracking
+  defp compute_regularizers(pipeline, tensor, extra_args) do
     # Implementation as specified in 04_PIPELINE.md
-    # Uses extra_args merged into each penalty's opts
+    # Uses extra_args merged into each regularizer's opts
   end
 end
 ```
@@ -288,7 +288,7 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `:track_grad_norms` | boolean | `false` | Compute gradient norms for each penalty |
+| `:track_grad_norms` | boolean | `false` | Compute gradient norms for each regularizer |
 
 ---
 
@@ -296,7 +296,7 @@ end
 
 ```elixir
 describe "compute_grad_norm/2" do
-  test "computes correct L2 norm for L1 penalty gradient" do
+  test "computes correct L2 norm for L1 regularizer gradient" do
     # Gradient of sum(|x|) is sign(x)
     loss_fn = fn x -> Nx.sum(Nx.abs(x)) end
     tensor = Nx.tensor([1.0, -2.0, 3.0])
@@ -307,7 +307,7 @@ describe "compute_grad_norm/2" do
     assert_close(norm, :math.sqrt(3))
   end
 
-  test "computes correct L2 norm for L2 penalty gradient" do
+  test "computes correct L2 norm for L2 regularizer gradient" do
     # Gradient of sum(x²) is 2x
     loss_fn = fn x -> Nx.sum(Nx.power(x, 2)) end
     tensor = Nx.tensor([1.0, 2.0, 3.0])
@@ -341,7 +341,7 @@ end
 
 describe "pipeline_grad_norms/2" do
   test "computes norms for all pipeline entries" do
-    pipeline = NxPenalties.pipeline([
+    pipeline =  Tinkex.Regularizer.Pipeline.pipeline([
       {:l1, weight: 0.001},
       {:l2, weight: 0.01}
     ])
@@ -358,7 +358,7 @@ end
 
 describe "total_grad_norm/2" do
   test "combines weighted gradients correctly" do
-    pipeline = NxPenalties.pipeline([
+    pipeline =  Tinkex.Regularizer.Pipeline.pipeline([
       {:l1, weight: 1.0}
     ])
     tensor = Nx.tensor([1.0, 1.0, 1.0])
@@ -372,13 +372,13 @@ end
 
 describe "pipeline integration" do
   test "compute returns gradient metrics when tracking enabled" do
-    pipeline = NxPenalties.pipeline([
+    pipeline =  Tinkex.Regularizer.Pipeline.pipeline([
       {:l1, weight: 0.001},
       {:l2, weight: 0.01}
     ])
     tensor = Nx.tensor([1.0, 2.0, 3.0])
 
-    {_total, metrics} = NxPenalties.compute(pipeline, tensor, track_grad_norms: true)
+    {_total, metrics} = Tinkex.Regularizer.Pipeline.compute(data, logprobs, base_loss_fn, regularizers: regularizers, track_grad_norms: true)
 
     assert Map.has_key?(metrics, "l1_grad_norm")
     assert Map.has_key?(metrics, "l2_grad_norm")
@@ -386,10 +386,10 @@ describe "pipeline integration" do
   end
 
   test "compute does not include gradient metrics when tracking disabled" do
-    pipeline = NxPenalties.pipeline([{:l1, weight: 0.001}])
+    pipeline =  Tinkex.Regularizer.Pipeline.pipeline([{:l1, weight: 0.001}])
     tensor = Nx.tensor([1.0, 2.0, 3.0])
 
-    {_total, metrics} = NxPenalties.compute(pipeline, tensor)
+    {_total, metrics} =  Tinkex.Regularizer.Pipeline.compute(pipeline, tensor)
 
     refute Map.has_key?(metrics, "l1_grad_norm")
     refute Map.has_key?(metrics, "total_grad_norm")
@@ -405,8 +405,8 @@ end
 
 | Pipeline Size | Mode | Forward Passes | Backward Passes |
 |--------------|------|----------------|-----------------|
-| N penalties | No tracking | N | 0 |
-| N penalties | With tracking | N | N + 1 |
+| N regularizers | No tracking | N | 0 |
+| N regularizers | With tracking | N | N + 1 |
 
 ### Recommended Usage Patterns
 
@@ -414,27 +414,27 @@ end
 # Pattern 1: Periodic tracking (recommended)
 def train_step(pipeline, batch, step) do
   track = rem(step, 100) == 0
-  {total, metrics} = NxPenalties.compute(pipeline, batch, track_grad_norms: track)
+  {total, metrics} =  Tinkex.Regularizer.Pipeline.compute(pipeline, batch, track_grad_norms: track)
   # ...
 end
 
 # Pattern 2: Debug mode only
 def train_step(pipeline, batch, debug: debug) do
-  {total, metrics} = NxPenalties.compute(pipeline, batch, track_grad_norms: debug)
+  {total, metrics} =  Tinkex.Regularizer.Pipeline.compute(pipeline, batch, track_grad_norms: debug)
   # ...
 end
 
 # Pattern 3: Conditional on instability detection
 def train_step(pipeline, batch, prev_loss) do
   # First compute without gradient tracking
-  {total, _} = NxPenalties.compute(pipeline, batch)
+  {total, _} =  Tinkex.Regularizer.Pipeline.compute(pipeline, batch)
 
   # Check for loss spike
   loss_spike = prev_loss != nil and Nx.to_number(total) / prev_loss > 2.0
 
   # Re-compute with gradient tracking only if spike detected
   if loss_spike do
-    {total, metrics} = NxPenalties.compute(pipeline, batch, track_grad_norms: true)
+    {total, metrics} =  Tinkex.Regularizer.Pipeline.compute(pipeline, batch, track_grad_norms: true)
     {total, metrics, Nx.to_number(total)}
   else
     {total, %{}, Nx.to_number(total)}
@@ -448,8 +448,8 @@ end
 
 | Event | Measurements | Metadata |
 |-------|-------------|----------|
-| `[:nx_penalties, :gradient, :computed]` | `%{total_norm: float}` | `%{pipeline_size: int}` |
-| `[:nx_penalties, :gradient, :failed]` | `%{duration: ns}` | `%{reason: term}` |
+| `[:nx_regularizers, :gradient, :computed]` | `%{total_norm: float}` | `%{pipeline_size: int}` |
+| `[:nx_regularizers, :gradient, :failed]` | `%{duration: ns}` | `%{reason: term}` |
 
 ---
 

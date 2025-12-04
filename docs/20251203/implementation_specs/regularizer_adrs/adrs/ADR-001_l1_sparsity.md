@@ -16,34 +16,40 @@ In the context of LoRA fine-tuning with Tinker, we operate on logprobs (log prob
 
 ## Decision
 
-Implement `Tinkex.Regularizer.L1` with configurable target selection.
+Implement L1 sparsity as a tensor primitive in `NxPenalties.Penalties.l1/2` and a thin Tinkex adapter for data-aware target selection.
 
 ### Interface
 
 ```elixir
-defmodule Tinkex.Regularizer.L1 do
+# Tensor primitive (NxPenalties)
+l1_value = NxPenalties.Penalties.l1(tensor,
+  lambda: 1.0,
+  reduction: :sum  # or :mean
+)
+
+# Tinkex adapter (data-aware)
+defmodule Tinkex.Regularizers.L1 do
   @behaviour Tinkex.Regularizer
 
   @impl true
   def compute(data, logprobs, opts \\ []) do
     target = Keyword.get(opts, :target, :logprobs)
+    reduction = Keyword.get(opts, :reduction, :sum)
 
-    tensor = case target do
-      :logprobs -> logprobs
-      :probs -> Nx.exp(logprobs)
-      {:field, key} -> extract_field(data, key)
-    end
+    tensor =
+      case target do
+        :logprobs -> logprobs
+        :probs -> Nx.exp(logprobs)
+        {:field, key} -> fetch_field!(data, key)
+      end
 
-    l1_value = Nx.sum(Nx.abs(tensor))
+    l1_value = NxPenalties.Penalties.l1(tensor, reduction: reduction)
 
     {l1_value, %{
-      "l1_raw" => Nx.to_number(l1_value),
+      "l1_raw" => Nx.to_number(Nx.sum(Nx.abs(tensor))),
       "l1_mean" => Nx.to_number(Nx.mean(Nx.abs(tensor)))
     }}
   end
-
-  @impl true
-  def name, do: "l1_sparsity"
 end
 ```
 
@@ -51,8 +57,9 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `:target` | atom \| tuple | `:logprobs` | What to regularize |
-| `:reduce` | `:sum` \| `:mean` | `:sum` | Reduction method |
+| `:target` | atom \| tuple | `:logprobs` | What to regularize (Tinkex adapter) |
+| `:reduction` | `:sum` \| `:mean` | `:sum` | Reduction method (both) |
+| `:lambda` | number | `1.0` | Scaling inside the NxPenalties primitive (optional) |
 
 ## Consequences
 

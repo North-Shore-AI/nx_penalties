@@ -16,70 +16,32 @@ This is arguably the most important regularizer for LoRA fine-tuning, as it dire
 
 ## Decision
 
-Implement `Tinkex.Regularizer.KLDivergence` with support for comparing against reference logprobs.
+Implement KL divergence as a tensor primitive in `NxPenalties.Divergences.kl_divergence/3` and a Tinkex adapter that resolves the reference distribution.
 
 ### Interface
 
 ```elixir
-defmodule Tinkex.Regularizer.KLDivergence do
+# Tensor primitive (NxPenalties)
+kl_value = NxPenalties.Divergences.kl_divergence(p_logprobs, q_logprobs,
+  reduction: :mean # or :sum/:none
+)
+
+# Tinkex adapter (data-aware)
+defmodule Tinkex.Regularizers.KLDivergence do
   @behaviour Tinkex.Regularizer
-
-  @moduledoc """
-  KL Divergence regularizer for keeping fine-tuned outputs close to reference.
-
-  KL(P || Q) = Σ P(x) * log(P(x) / Q(x))
-
-  Where P is the fine-tuned distribution and Q is the reference (base model).
-
-  ## Usage
-
-  Requires reference logprobs to be provided either:
-  1. Via opts[:reference_logprobs] - pre-computed Nx tensor
-  2. Via opts[:reference_field] - field name in Datum.loss_fn_inputs
-  3. Via opts[:compute_reference] - function to compute reference
-
-  ## Example
-
-      # Pre-compute base model logprobs
-      {:ok, base_response} = SamplingClient.compute_logprobs(base_client, prompt)
-      base_logprobs = base_response.logprobs
-
-      # Use in regularizer
-      %RegularizerSpec{
-        fn: &KLDivergence.compute/3,
-        weight: 0.1,
-        name: "kl_div",
-        opts: [reference_logprobs: base_logprobs]
-      }
-  """
 
   @impl true
   def compute(data, logprobs, opts \\ []) do
-    reference = get_reference(data, opts)
+    reference = resolve_reference!(data, opts)
 
-    unless reference do
-      raise ArgumentError, """
-      KLDivergence requires reference logprobs. Provide one of:
-        - reference_logprobs: Nx.Tensor.t()
-        - reference_field: atom (field in Datum.loss_fn_inputs)
-        - compute_reference: (data -> Nx.Tensor.t())
-      """
+    # Strict shape check
+    if Nx.shape(logprobs) != Nx.shape(reference) do
+      raise ArgumentError,
+            "Shape mismatch in KL divergence: logprobs #{inspect(Nx.shape(logprobs))} vs reference #{inspect(Nx.shape(reference))}"
     end
 
-    # Require identical shapes (strict validation)
-    {logprobs, reference} = validate_shapes!(logprobs, reference)
-
-    # Convert logprobs to probabilities
-    p = Nx.exp(logprobs)       # fine-tuned distribution
-    q = Nx.exp(reference)       # reference distribution
-
-    # KL(P || Q) = Σ p * log(p/q) = Σ p * (log_p - log_q)
-    # Using logprobs directly for numerical stability
-    kl_pointwise = Nx.multiply(p, Nx.subtract(logprobs, reference))
-
-    # Sum over vocabulary, mean over sequence/batch
-    kl_per_position = Nx.sum(kl_pointwise, axes: [-1])
-    kl_value = Nx.mean(kl_per_position)
+    kl_value = NxPenalties.Divergences.kl_divergence(logprobs, reference, reduction: :mean)
+    kl_per_position = Nx.sum(Nx.multiply(Nx.exp(logprobs), Nx.subtract(logprobs, reference)), axes: [-1])
 
     {kl_value, %{
       "kl_divergence" => Nx.to_number(kl_value),
@@ -88,49 +50,24 @@ defmodule Tinkex.Regularizer.KLDivergence do
     }}
   end
 
-  @impl true
-  def name, do: "kl_divergence"
-
-  # Private helpers
-
-  defp get_reference(data, opts) do
+  defp resolve_reference!(data, opts) do
     cond do
       opts[:reference_logprobs] ->
         opts[:reference_logprobs]
 
       opts[:reference_field] ->
-        # Extract from first datum's loss_fn_inputs
-        field = opts[:reference_field]
         data
         |> List.first()
         |> Map.get(:loss_fn_inputs, %{})
-        |> Map.get(field)
-        |> maybe_to_tensor()
+        |> Map.fetch!(opts[:reference_field])
 
       opts[:compute_reference] ->
         opts[:compute_reference].(data)
 
       true ->
-        nil
+        raise ArgumentError, "KL divergence requires a reference via :reference_logprobs, :reference_field, or :compute_reference"
     end
   end
-
-  defp validate_shapes!(a, b) do
-    if Nx.shape(a) != Nx.shape(b) do
-      raise ArgumentError, """
-      Shape mismatch in KL divergence.
-      logprobs shape: #{inspect(Nx.shape(a))}
-      reference shape: #{inspect(Nx.shape(b))}
-
-      Both tensors must have identical shapes.
-      """
-    end
-    {a, b}
-  end
-
-  defp maybe_to_tensor(%Tinkex.Types.TensorData{} = td), do: Tinkex.Types.TensorData.to_nx(td)
-  defp maybe_to_tensor(%Nx.Tensor{} = t), do: t
-  defp maybe_to_tensor(nil), do: nil
 end
 ```
 
@@ -138,9 +75,10 @@ end
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `:reference_logprobs` | Nx.Tensor.t() | required | Reference distribution logprobs |
-| `:reference_field` | atom | nil | Field name in Datum.loss_fn_inputs |
-| `:compute_reference` | function | nil | Function to compute reference on-demand |
+| `:reference_logprobs` | Nx.Tensor.t() | required | Reference distribution logprobs (Tinkex adapter) |
+| `:reference_field` | atom | nil | Field name in Datum.loss_fn_inputs (Tinkex adapter) |
+| `:compute_reference` | function | nil | Function to compute reference on-demand (Tinkex adapter) |
+| `:reduction` | `:mean` \| `:sum` \| `:none` | `:mean` | NxPenalties reduction option |
 
 > **Future extensions:** `:direction` (`:forward` \| `:reverse`) and `:symmetric` (Jensen-Shannon) are planned but not yet implemented.
 

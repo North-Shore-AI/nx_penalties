@@ -51,4 +51,26 @@ l1_mean = NxPenalties.l1(tensor, reduction: :mean)
 IO.puts("L1 sum: #{Nx.to_number(l1_sum)}")
 IO.puts("L1 mean: #{Nx.to_number(l1_mean)}")
 
+IO.puts("")
+
+# L2 with centering
+IO.puts("=== L2 with Centering ===")
+tensor2 = Nx.tensor([1.0, 2.0, 3.0, 4.0, 5.0])
+
+l2_default = NxPenalties.l2(tensor2, lambda: 1.0)
+IO.puts("L2 (no centering): #{Nx.to_number(l2_default)}")
+# Expected: 1 + 4 + 9 + 16 + 25 = 55
+
+l2_center_mean = NxPenalties.l2(tensor2, lambda: 1.0, center: :mean)
+IO.puts("L2 (center: :mean): #{Nx.to_number(l2_center_mean)}")
+# Mean = 3, centered = [-2, -1, 0, 1, 2], squared = [4, 1, 0, 1, 4] = 10
+
+l2_center_zero = NxPenalties.l2(tensor2, lambda: 1.0, center: 0.0)
+IO.puts("L2 (center: 0.0): #{Nx.to_number(l2_center_zero)}")
+# Same as default since centering around 0 is no-op
+
+l2_center_custom = NxPenalties.l2(tensor2, lambda: 1.0, center: 3.0)
+IO.puts("L2 (center: 3.0): #{Nx.to_number(l2_center_custom)}")
+# Centered around 3: [-2, -1, 0, 1, 2], squared = [4, 1, 0, 1, 4] = 10
+
 IO.puts("\n=== Done ===")
