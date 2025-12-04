@@ -1,0 +1,338 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480" role="img" aria-labelledby="title desc">
+<title>NxPenalties Hexagonal Mark</title>
+<desc>Hexagonal emblem for NxPenalties showing L1/L2 regularization constraints, contour optimization, and penalty function concepts for Elixir Nx.</desc>
+<defs>
+  <!-- Deep space background gradient -->
+  <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#0a1628"/>
+    <stop offset="40%" stop-color="#0d2240"/>
+    <stop offset="70%" stop-color="#12183a"/>
+    <stop offset="100%" stop-color="#080e1c"/>
+  </linearGradient>
+
+  <!-- Outer hexagon border gradient -->
+  <linearGradient id="borderGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#4af0e8"/>
+    <stop offset="35%" stop-color="#7a8fff"/>
+    <stop offset="65%" stop-color="#c77dff"/>
+    <stop offset="100%" stop-color="#ffb366"/>
+  </linearGradient>
+
+  <!-- L1 diamond constraint gradient (cyan-teal) -->
+  <linearGradient id="l1Gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#0ef3d8" stop-opacity="0.9"/>
+    <stop offset="50%" stop-color="#2dd4bf" stop-opacity="0.7"/>
+    <stop offset="100%" stop-color="#14b8a6" stop-opacity="0.5"/>
+  </linearGradient>
+
+  <!-- L2 circle constraint gradient (purple-magenta) -->
+  <linearGradient id="l2Gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#c084fc" stop-opacity="0.85"/>
+    <stop offset="50%" stop-color="#a855f7" stop-opacity="0.65"/>
+    <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.45"/>
+  </linearGradient>
+
+  <!-- Elastic net blend gradient -->
+  <linearGradient id="elasticGradient" x1="0%" y1="100%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="#0ef3d8" stop-opacity="0.6"/>
+    <stop offset="50%" stop-color="#8b5cf6" stop-opacity="0.5"/>
+    <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.4"/>
+  </linearGradient>
+
+  <!-- Contour gradient for loss landscape -->
+  <linearGradient id="contourGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+    <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.4"/>
+    <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.15"/>
+  </linearGradient>
+
+  <!-- Optimization path gradient -->
+  <linearGradient id="pathGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="#fbbf24"/>
+    <stop offset="40%" stop-color="#f97316"/>
+    <stop offset="70%" stop-color="#ef4444"/>
+    <stop offset="100%" stop-color="#ec4899"/>
+  </linearGradient>
+
+  <!-- Core glow for optimal point -->
+  <radialGradient id="optimalGlow" cx="50%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="#fef3c7" stop-opacity="1"/>
+    <stop offset="40%" stop-color="#fcd34d" stop-opacity="0.7"/>
+    <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+  </radialGradient>
+
+  <!-- Central halo -->
+  <radialGradient id="centerHalo" cx="50%" cy="50%" r="60%">
+    <stop offset="0%" stop-color="#6ee7b7" stop-opacity="0.25"/>
+    <stop offset="50%" stop-color="#a78bfa" stop-opacity="0.12"/>
+    <stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/>
+  </radialGradient>
+
+  <!-- Lambda symbol gradient -->
+  <linearGradient id="lambdaGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#fef08a"/>
+    <stop offset="50%" stop-color="#fbbf24"/>
+    <stop offset="100%" stop-color="#f59e0b"/>
+  </linearGradient>
+
+  <!-- Grid lines gradient -->
+  <linearGradient id="gridGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#4af0e8" stop-opacity="0.12"/>
+    <stop offset="100%" stop-color="#c77dff" stop-opacity="0.06"/>
+  </linearGradient>
+
+  <!-- Inner hex stroke -->
+  <linearGradient id="innerStroke" x1="0%" y1="100%" x2="100%" y2="0%">
+    <stop offset="0%" stop-color="#0ef3d8" stop-opacity="0.35"/>
+    <stop offset="100%" stop-color="#f5f5f5" stop-opacity="0.45"/>
+  </linearGradient>
+
+  <!-- Soft glow filter -->
+  <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+    <feMerge>
+      <feMergeNode in="blur"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+
+  <!-- Strong glow for key elements -->
+  <filter id="strongGlow" x="-50%" y="-50%" width="200%" height="200%">
+    <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="blur"/>
+    <feMerge>
+      <feMergeNode in="blur"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+
+  <!-- Drop shadow -->
+  <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+    <feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#0a1628" flood-opacity="0.5"/>
+  </filter>
+
+  <!-- Clip path for hexagon -->
+  <clipPath id="hexClip">
+    <polygon points="240 25 415 130 415 340 240 445 65 340 65 130"/>
+  </clipPath>
+
+  <!-- Arrowhead marker -->
+  <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+    <path d="M1 1 L7 4 L1 7 Z" fill="#fbbf24"/>
+  </marker>
+</defs>
+
+<!-- Main hexagon background -->
+<g>
+  <polygon points="240 25 415 130 415 340 240 445 65 340 65 130"
+           fill="url(#bgGradient)"
+           stroke="url(#borderGradient)"
+           stroke-width="8"
+           stroke-linejoin="round"/>
+  <!-- Inner decorative hex borders -->
+  <polygon points="240 48 392 142 392 328 240 422 88 328 88 142"
+           fill="none"
+           stroke="url(#innerStroke)"
+           stroke-width="3"
+           stroke-linejoin="round"
+           stroke-dasharray="8 8"
+           opacity="0.7"/>
+  <polygon points="240 68 372 152 372 318 240 402 108 318 108 152"
+           fill="none"
+           stroke="#4af0e8"
+           stroke-width="1.5"
+           stroke-linejoin="round"
+           opacity="0.25"/>
+</g>
+
+<!-- Central halo glow -->
+<circle cx="240" cy="235" r="140" fill="url(#centerHalo)"/>
+
+<!-- Coordinate grid (faint) -->
+<g clip-path="url(#hexClip)" stroke="url(#gridGradient)" stroke-width="1" opacity="0.4">
+  <!-- Vertical lines -->
+  <line x1="160" y1="80" x2="160" y2="400"/>
+  <line x1="200" y1="80" x2="200" y2="400"/>
+  <line x1="240" y1="80" x2="240" y2="400"/>
+  <line x1="280" y1="80" x2="280" y2="400"/>
+  <line x1="320" y1="80" x2="320" y2="400"/>
+  <!-- Horizontal lines -->
+  <line x1="80" y1="155" x2="400" y2="155"/>
+  <line x1="80" y1="195" x2="400" y2="195"/>
+  <line x1="80" y1="235" x2="400" y2="235"/>
+  <line x1="80" y1="275" x2="400" y2="275"/>
+  <line x1="80" y1="315" x2="400" y2="315"/>
+</g>
+
+<!-- Loss landscape contours (elliptical) -->
+<g clip-path="url(#hexClip)" opacity="0.5">
+  <ellipse cx="290" cy="185" rx="120" ry="95" fill="none" stroke="url(#contourGradient)" stroke-width="1.5" stroke-dasharray="4 6"/>
+  <ellipse cx="290" cy="185" rx="95" ry="75" fill="none" stroke="#60a5fa" stroke-width="1.2" stroke-dasharray="4 6" opacity="0.6"/>
+  <ellipse cx="290" cy="185" rx="70" ry="55" fill="none" stroke="#3b82f6" stroke-width="1" stroke-dasharray="4 6" opacity="0.5"/>
+  <ellipse cx="290" cy="185" rx="45" ry="35" fill="none" stroke="#1d4ed8" stroke-width="0.8" stroke-dasharray="4 6" opacity="0.4"/>
+  <ellipse cx="290" cy="185" rx="20" ry="15" fill="none" stroke="#1e40af" stroke-width="0.6" opacity="0.3"/>
+</g>
+
+<!-- L2 constraint circle (larger, purple) -->
+<g filter="url(#softGlow)">
+  <circle cx="240" cy="235" r="85"
+          fill="none"
+          stroke="url(#l2Gradient)"
+          stroke-width="4"
+          opacity="0.85"/>
+  <circle cx="240" cy="235" r="85"
+          fill="url(#l2Gradient)"
+          opacity="0.08"/>
+  <!-- L2 label -->
+  <text x="310" y="310"
+        font-family="Georgia, serif"
+        font-size="16"
+        font-style="italic"
+        fill="#c084fc"
+        opacity="0.8">L2</text>
+</g>
+
+<!-- L1 constraint diamond (rotated square, teal) -->
+<g filter="url(#softGlow)">
+  <polygon points="240 150 325 235 240 320 155 235"
+           fill="none"
+           stroke="url(#l1Gradient)"
+           stroke-width="4"
+           stroke-linejoin="round"
+           opacity="0.9"/>
+  <polygon points="240 150 325 235 240 320 155 235"
+           fill="url(#l1Gradient)"
+           opacity="0.06"/>
+  <!-- L1 label -->
+  <text x="330" y="240"
+        font-family="Georgia, serif"
+        font-size="16"
+        font-style="italic"
+        fill="#0ef3d8"
+        opacity="0.85">L1</text>
+</g>
+
+<!-- Elastic net hybrid shape hint -->
+<g opacity="0.35">
+  <path d="M240 160 Q305 175 315 235 Q305 295 240 310 Q175 295 165 235 Q175 175 240 160"
+        fill="none"
+        stroke="url(#elasticGradient)"
+        stroke-width="2.5"
+        stroke-dasharray="6 4"/>
+</g>
+
+<!-- Optimization path (gradient descent trajectory) -->
+<g filter="url(#softGlow)" opacity="0.95">
+  <path d="M340 145 C320 155 305 175 285 195 Q265 215 250 228 L215 252"
+        fill="none"
+        stroke="url(#pathGradient)"
+        stroke-width="3.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        marker-end="url(#arrowhead)"/>
+  <!-- Path nodes showing iterations -->
+  <circle cx="340" cy="145" r="5" fill="#fbbf24" opacity="0.7"/>
+  <circle cx="305" cy="175" r="4" fill="#f97316" opacity="0.75"/>
+  <circle cx="270" cy="205" r="4" fill="#ef4444" opacity="0.8"/>
+  <circle cx="245" cy="232" r="4" fill="#ec4899" opacity="0.85"/>
+</g>
+
+<!-- Optimal point (where constraints meet) -->
+<g filter="url(#strongGlow)">
+  <circle cx="210" cy="260" r="18" fill="url(#optimalGlow)" opacity="0.4"/>
+  <circle cx="210" cy="260" r="10" fill="#fef3c7" opacity="0.9"/>
+  <circle cx="210" cy="260" r="5" fill="#f59e0b"/>
+  <!-- Small "x*" label -->
+  <text x="222" y="268"
+        font-family="Georgia, serif"
+        font-size="14"
+        font-weight="bold"
+        fill="#fef3c7"
+        opacity="0.85">x*</text>
+</g>
+
+<!-- Lambda (regularization parameter) symbol -->
+<g transform="translate(125, 120)" filter="url(#softGlow)" opacity="0.9">
+  <text font-family="Georgia, serif"
+        font-size="32"
+        font-style="italic"
+        font-weight="bold"
+        fill="url(#lambdaGradient)">λ</text>
+</g>
+
+<!-- Weight vector arrows from origin -->
+<g stroke="#4af0e8" stroke-width="2" stroke-linecap="round" opacity="0.5">
+  <line x1="240" y1="235" x2="195" y2="190" stroke-dasharray="3 3"/>
+  <line x1="240" y1="235" x2="285" y2="190" stroke-dasharray="3 3"/>
+  <line x1="240" y1="235" x2="285" y2="280" stroke-dasharray="3 3"/>
+  <line x1="240" y1="235" x2="195" y2="280" stroke-dasharray="3 3"/>
+</g>
+
+<!-- Corner decorative elements (penalty function notation) -->
+<g opacity="0.6">
+  <!-- Top left: ||w||₁ -->
+  <text x="100" y="145"
+        font-family="Georgia, serif"
+        font-size="13"
+        fill="#0ef3d8">||w||₁</text>
+  <!-- Top right: ||w||₂² -->
+  <text x="340" y="145"
+        font-family="Georgia, serif"
+        font-size="13"
+        fill="#c084fc">||w||₂²</text>
+</g>
+
+<!-- Penalty curve visualization (bottom area) -->
+<g transform="translate(140, 340)" opacity="0.7">
+  <!-- L1 penalty curve (V-shape) -->
+  <path d="M0 45 L50 0 L100 45"
+        fill="none"
+        stroke="#0ef3d8"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+  <!-- L2 penalty curve (parabola) -->
+  <path d="M110 45 Q160 -5 210 45"
+        fill="none"
+        stroke="#c084fc"
+        stroke-width="2.5"
+        stroke-linecap="round"/>
+</g>
+
+<!-- Axis indicators near curves -->
+<g transform="translate(140, 340)" opacity="0.5">
+  <line x1="50" y1="50" x2="50" y2="0" stroke="#4af0e8" stroke-width="1" stroke-dasharray="2 2"/>
+  <line x1="160" y1="50" x2="160" y2="5" stroke="#a78bfa" stroke-width="1" stroke-dasharray="2 2"/>
+  <text x="42" y="62" font-family="Arial, sans-serif" font-size="10" fill="#0ef3d8">0</text>
+  <text x="152" y="62" font-family="Arial, sans-serif" font-size="10" fill="#a78bfa">0</text>
+</g>
+
+<!-- Scattered glow particles -->
+<g opacity="0.6">
+  <circle cx="145" cy="200" r="2" fill="#4af0e8"/>
+  <circle cx="335" cy="275" r="2" fill="#c084fc"/>
+  <circle cx="175" cy="315" r="1.5" fill="#fbbf24"/>
+  <circle cx="305" cy="165" r="1.5" fill="#4af0e8"/>
+  <circle cx="255" cy="135" r="2" fill="#a78bfa"/>
+  <circle cx="130" cy="280" r="1.5" fill="#0ef3d8"/>
+  <circle cx="350" cy="210" r="1.5" fill="#f59e0b"/>
+  <circle cx="190" cy="160" r="2" fill="#c084fc"/>
+</g>
+
+<!-- Small formula hint at bottom -->
+<g opacity="0.5">
+  <text x="195" y="420"
+        font-family="Georgia, serif"
+        font-size="11"
+        fill="#94a3b8">
+    L + λ·P(w)
+  </text>
+</g>
+
+<!-- Nx branding accent line -->
+<g opacity="0.6">
+  <path d="M185 100 L205 100 L220 115 L240 100 L260 100"
+        fill="none"
+        stroke="url(#borderGradient)"
+        stroke-width="2"
+        stroke-linecap="round"/>
+  <circle cx="240" cy="100" r="3" fill="#fbbf24"/>
+</g>
+</svg>
