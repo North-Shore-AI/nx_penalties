@@ -24,7 +24,7 @@
 
 NxPenalties is a tensor-only library of regularization primitives for [Nx](https://github.com/elixir-nx/nx). It is designed to be composable inside `defn` code and training loops, leaving any data-aware adaptation (e.g., resolving references from data structures) to downstream libraries such as Tinkex.
 
-### Features (v0.1.1)
+### Features (v0.1.2)
 
 - **Penalties**: L1, L2 (with centering/clipping), Elastic Net
 - **Divergences**: KL (forward/reverse/symmetric), JS, Entropy (bonus/penalty, temperature scaling)
@@ -43,7 +43,7 @@ Add `nx_penalties` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:nx_penalties, "~> 0.1.1"}
+    {:nx_penalties, "~> 0.1.2"}
   ]
 end
 ```

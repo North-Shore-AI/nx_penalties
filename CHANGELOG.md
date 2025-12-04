@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - L2 validation schema now includes `:center` option (nil | :mean | number)
 
+## [0.1.2] - 2025-12-05
+
+### Fixed
+- Axon/Polaris optional deps are now truly optional: integration modules compile only when those libraries are present and provide clear error messages otherwise, preventing downstream projects without Axon/Polaris from failing to compile.
+
 ## [0.1.1] - 2025-12-04
 
 ### Added
@@ -87,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Initial release.
 
-[Unreleased]: https://github.com/North-Shore-AI/nx_penalties/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/North-Shore-AI/nx_penalties/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/North-Shore-AI/nx_penalties/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/North-Shore-AI/nx_penalties/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/North-Shore-AI/nx_penalties/releases/tag/v0.1.0
