@@ -14,6 +14,8 @@ When training with multiple regularizers, it's crucial to understand which penal
 
 Tinkex currently implements `GradientTracker` for this purpose. This ADR proposes porting this functionality to NxPenalties as part of the pipeline infrastructure.
 
+**Note**: Pipeline entries use a 5-tuple `{name, fn, weight, opts, enabled}`. Some examples below show the 4-tuple form for brevity; the `enabled` boolean is implicit in these cases.
+
 ## Decision
 
 Implement `NxPenalties.GradientTracker` for computing L2 gradient norms of individual penalties and total composed loss.
@@ -110,10 +112,13 @@ defmodule NxPenalties.GradientTracker do
   @spec pipeline_grad_norms(Pipeline.t(), Nx.Tensor.t()) :: map()
   def pipeline_grad_norms(pipeline, tensor) do
     pipeline.entries
-    |> Enum.map(fn {name, penalty_fn, weight, opts} ->
+    |> Enum.filter(fn {_, _, _, _, enabled} -> enabled end)
+    |> Enum.flat_map(fn {name, penalty_fn, _weight, opts, _enabled} ->
       loss_fn = fn t -> penalty_fn.(t, opts) end
-      norm = compute_grad_norm(loss_fn, tensor)
-      {:"#{name}_grad_norm", norm}
+      case compute_grad_norm(loss_fn, tensor) do
+        nil -> [{:"#{name}_grad_norm", nil}, {:"#{name}_grad_norm_error", true}]
+        norm -> [{:"#{name}_grad_norm", norm}]
+      end
     end)
     |> Map.new()
   end
@@ -135,11 +140,12 @@ defmodule NxPenalties.GradientTracker do
       total = Σ(weight_i × penalty_i(tensor))
       result = ||∇_tensor total||_2
   """
-  @spec total_grad_norm(Pipeline.t(), Nx.Tensor.t()) :: float()
+  @spec total_grad_norm(Pipeline.t(), Nx.Tensor.t()) :: float() | nil
   def total_grad_norm(pipeline, tensor) do
     total_loss_fn = fn t ->
       pipeline.entries
-      |> Enum.map(fn {_name, penalty_fn, weight, opts} ->
+      |> Enum.filter(fn {_, _, _, _, enabled} -> enabled end)
+      |> Enum.map(fn {_name, penalty_fn, weight, opts, _enabled} ->
         Nx.multiply(penalty_fn.(t, opts), weight)
       end)
       |> Enum.reduce(Nx.tensor(0.0), &Nx.add/2)
@@ -247,7 +253,7 @@ def compute_grad_norm(loss_fn, tensor) do
   rescue
     e ->
       Logger.warning("Gradient computation failed: #{inspect(e)}")
-      0.0
+      nil  # Return nil; pipeline will add *_grad_norm_error metric
   end
 end
 ```

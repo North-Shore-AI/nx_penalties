@@ -122,9 +122,9 @@ end
 
 ### Implementation Notes
 
-1. **Nx.Defn.grad/2**: Unlike PyTorch's `retain_graph=True`, Nx computes gradients symbolically. No graph retention needed.
+1. **Nx.Defn.grad/1**: Unlike PyTorch's `retain_graph=True`, Nx computes gradients symbolically. No graph retention needed. The function returns a new function that computes the gradient.
 
-2. **Error Handling**: Some operations may not be differentiable. Return 0.0 with warning rather than crashing.
+2. **Error Handling**: Some operations may not be differentiable. Return `nil` with warning rather than crashing. The pipeline integration includes a `*_grad_norm_error` metric when this occurs.
 
 3. **Flattening**: Flatten gradient tensor before computing norm to handle arbitrary shapes.
 
@@ -426,9 +426,19 @@ end
 
 # Pattern 3: Conditional on instability detection
 def train_step(pipeline, batch, prev_loss) do
-  loss_spike = prev_loss != nil and total / prev_loss > 2.0
-  {total, metrics} = NxPenalties.compute(pipeline, batch, track_grad_norms: loss_spike)
-  # ...
+  # First compute without gradient tracking
+  {total, _} = NxPenalties.compute(pipeline, batch)
+
+  # Check for loss spike
+  loss_spike = prev_loss != nil and Nx.to_number(total) / prev_loss > 2.0
+
+  # Re-compute with gradient tracking only if spike detected
+  if loss_spike do
+    {total, metrics} = NxPenalties.compute(pipeline, batch, track_grad_norms: true)
+    {total, metrics, Nx.to_number(total)}
+  else
+    {total, %{}, Nx.to_number(total)}
+  end
 end
 ```
 

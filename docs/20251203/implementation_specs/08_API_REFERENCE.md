@@ -18,13 +18,13 @@ defmodule NxPenalties do
 
   ## Quick Start
 
-      # Simple penalty
-      loss = NxPenalties.l1(params, lambda: 0.01)
+      # Simple penalty (lambda defaults to 1.0)
+      loss = NxPenalties.l1(params)
 
-      # Pipeline composition
+      # Pipeline composition (recommended)
       pipeline =
         NxPenalties.pipeline([
-          {:l1, weight: 0.001},
+          {:l1, weight: 0.001},    # Use weight for scaling
           {:l2, weight: 0.01},
           {:entropy, weight: 0.1, mode: :bonus}
         ])
@@ -288,12 +288,42 @@ def add(pipeline, name, penalty_fn, opts \\ [])
 @doc """
 Execute pipeline and return total + metrics.
 
+## Options
+
+  * `:extra_args` - Additional arguments merged into each penalty's opts
+    (e.g., reference distribution for KL). Default: `[]`
+  * `:track_grad_norms` - Compute gradient norms for each penalty.
+    See `NxPenalties.GradientTracker` for details. Default: `false`
+
 ## Returns
 
 `{total_tensor, metrics_map}` where metrics contains:
 - `"{name}"` - Raw penalty value
 - `"{name}_weighted"` - Weighted value
 - `"total"` - Sum of weighted penalties
+- `"{name}_grad_norm"` - (if `track_grad_norms: true`) Gradient L2 norm
+- `"total_grad_norm"` - (if `track_grad_norms: true`) Total gradient norm
+"""
+@spec compute(Pipeline.t(), Nx.Tensor.t(), keyword()) :: {Nx.Tensor.t(), map()}
+def compute(pipeline, tensor, opts \\ [])
+```
+
+### NxPenalties.compute/3
+
+Top-level convenience function that delegates to `Pipeline.compute/3`.
+
+```elixir
+@doc """
+Compute all penalties in a pipeline.
+
+Equivalent to `NxPenalties.Pipeline.compute(pipeline, tensor, opts)`.
+
+## Examples
+
+    {total, metrics} = NxPenalties.compute(pipeline, tensor)
+    {total, metrics} = NxPenalties.compute(pipeline, tensor, track_grad_norms: true)
+
+See `NxPenalties.Pipeline.compute/3` for full documentation.
 """
 @spec compute(Pipeline.t(), Nx.Tensor.t(), keyword()) :: {Nx.Tensor.t(), map()}
 def compute(pipeline, tensor, opts \\ [])
@@ -353,7 +383,7 @@ def add_gradient_clipping(optimizer, max_norm \\ 1.0)
 
 # Pipeline types
 @type penalty_fn :: (tensor(), opts() -> tensor())
-@type entry :: {atom(), penalty_fn(), number(), opts()}
+@type entry :: {atom(), penalty_fn(), number(), opts(), boolean()}
 
 @type pipeline :: %Pipeline{
   entries: [entry()],
@@ -441,9 +471,9 @@ end
 **Entry Point (outside defn):**
 ```elixir
 # Use top-level module for validation and nice errors
-penalty = NxPenalties.l1(tensor, lambda: 0.01)
+penalty = NxPenalties.l1(tensor)  # lambda defaults to 1.0
 
-# Or use pipeline (recommended)
+# Or use pipeline (recommended for production)
 pipeline = NxPenalties.pipeline([{:l1, weight: 0.01}])
 {total, metrics} = NxPenalties.compute(pipeline, tensor)
 ```

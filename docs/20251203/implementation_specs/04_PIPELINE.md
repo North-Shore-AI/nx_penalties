@@ -171,8 +171,12 @@ Compute all penalties and return total + metrics.
 
   * `pipeline` - The configured pipeline
   * `tensor` - Primary input tensor (e.g., model outputs or weights)
-  * `extra_args` - Additional arguments for penalties that need them
-    (e.g., reference distribution for KL)
+  * `opts` - Options:
+    * `:extra_args` - Additional arguments merged into each penalty's opts
+      (e.g., reference distribution for KL). Default: `[]`
+    * `:track_grad_norms` - Compute gradient norms for each penalty.
+      Adds `*_grad_norm` metrics. Default: `false`
+      See [11_GRADIENT_TRACKING.md](./11_GRADIENT_TRACKING.md).
 
 ## Returns
 
@@ -182,26 +186,28 @@ Compute all penalties and return total + metrics.
   - `"{name}"` - Raw penalty value
   - `"{name}_weighted"` - Weight-adjusted value
   - `"total"` - Sum of all weighted penalties
-
-  For gradient norm tracking (debugging which regularizer dominates training),
-  see [11_GRADIENT_TRACKING.md](./11_GRADIENT_TRACKING.md).
+  - `"{name}_grad_norm"` - (if `track_grad_norms: true`) Gradient L2 norm
+  - `"total_grad_norm"` - (if `track_grad_norms: true`) Total gradient norm
 """
 @spec compute(t(), Nx.Tensor.t(), keyword()) :: {Nx.Tensor.t(), map()}
-def compute(%__MODULE__{} = pipeline, tensor, extra_args \\ [])
+def compute(%__MODULE__{} = pipeline, tensor, opts \\ [])
 
 # When no entries, return zero
-def compute(%__MODULE__{entries: []}, _tensor, _extra_args) do
+def compute(%__MODULE__{entries: []}, _tensor, _opts) do
   {Nx.tensor(0.0), %{"total" => 0.0}}
 end
 
-def compute(%__MODULE__{} = pipeline, tensor, extra_args) do
+def compute(%__MODULE__{} = pipeline, tensor, opts) do
+  extra_args = Keyword.get(opts, :extra_args, [])
+  track_grad_norms = Keyword.get(opts, :track_grad_norms, false)
+
   # Compute each enabled penalty
   results =
     pipeline.entries
     |> Enum.filter(fn {_, _, _, _, enabled} -> enabled end)
-    |> Enum.map(fn {name, penalty_fn, weight, opts, _enabled} ->
-      # Merge extra_args into opts
-      full_opts = Keyword.merge(opts, extra_args)
+    |> Enum.map(fn {name, penalty_fn, weight, penalty_opts, _enabled} ->
+      # Merge extra_args into penalty opts
+      full_opts = Keyword.merge(penalty_opts, extra_args)
 
       # Call penalty function
       raw_value = apply_penalty(penalty_fn, tensor, full_opts)
@@ -211,7 +217,7 @@ def compute(%__MODULE__{} = pipeline, tensor, extra_args) do
     end)
 
   # Build metrics map
-  metrics =
+  base_metrics =
     results
     |> Enum.flat_map(fn {name, raw, weighted} ->
       [
@@ -228,7 +234,20 @@ def compute(%__MODULE__{} = pipeline, tensor, extra_args) do
     |> Enum.reduce(Nx.tensor(0.0), &Nx.add/2)
     |> Nx.multiply(pipeline.scale)
 
-  metrics = Map.put(metrics, "total", Nx.to_number(total))
+  base_metrics = Map.put(base_metrics, "total", Nx.to_number(total))
+
+  # Optionally add gradient tracking metrics
+  metrics =
+    if track_grad_norms do
+      grad_metrics = NxPenalties.GradientTracker.pipeline_grad_norms(pipeline, tensor)
+      total_norm = NxPenalties.GradientTracker.total_grad_norm(pipeline, tensor)
+
+      base_metrics
+      |> Map.merge(grad_metrics)
+      |> Map.put("total_grad_norm", total_norm)
+    else
+      base_metrics
+    end
 
   {total, metrics}
 end
